@@ -1653,3 +1653,112 @@ button.hint {
 .slot .badge {
 	z-index: 3;
 }
+
+/* ═════ big card viewer: floats over the right side of the table ═════ */
+.board {
+	position: relative;
+}
+.inspector.inspector-big {
+	position: absolute;
+	top: 8px;
+	right: 262px;
+	width: 432px;
+	max-height: 884px;
+	z-index: 40;
+	padding: 14px;
+	gap: 10px;
+	background: rgba(6, 10, 16, 0.97);
+	border: 2px solid var(--cyan);
+	box-shadow:
+		0 0 0 1px #000,
+		0 20px 60px rgba(0, 0, 0, 0.85),
+		0 0 40px rgba(25, 227, 240, 0.15);
+	animation: viewer-in 0.16s ease-out;
+}
+@keyframes viewer-in {
+	from {
+		opacity: 0;
+		transform: translateX(16px) scale(0.97);
+	}
+}
+.inspector-big .inspect {
+	width: 400px;
+	height: 560px;
+	align-self: center;
+}
+.inspector-big .inspector-close {
+	top: 8px;
+	right: 8px;
+	font-size: 20px;
+	padding: 4px 12px;
+}
+.inspector-big .inspect-text {
+	font-size: 18px;
+	line-height: 1.4;
+}
+.inspector-big .tools {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 8px;
+}
+.inspector-big .tools button {
+	font-size: 17px;
+	padding: 9px 10px;
+}
+.inspector-big .tools button.primary {
+	grid-column: 1 / -1;
+	font-size: 22px;
+	padding: 12px;
+}
+.inspector-big .attach-info,
+.inspector-big .attach-info .link {
+	font-size: 17px;
+}
+.inspector-big .attach-mini {
+	width: 84px;
+	height: 118px;
+}
+.inspector-big .die-info {
+	font-size: 22px;
+}
+/* placeholder card faces at viewer size */
+.inspector-big .card-face.big {
+	padding: 18px;
+	gap: 10px;
+}
+.inspector-big .card-face.big .cf-name {
+	font-size: 40px;
+}
+.inspector-big .card-face.big .cf-sub {
+	font-size: 24px;
+}
+.inspector-big .card-face.big .cf-cost,
+.inspector-big .card-face.big .cf-ram {
+	font-size: 36px;
+	min-width: 52px;
+}
+.inspector-big .card-face.big .cf-type {
+	font-size: 30px;
+}
+.inspector-big .card-face.big .cf-kw span {
+	font-size: 20px;
+	padding: 2px 8px;
+}
+.inspector-big .card-face.big .cf-text {
+	font-size: 24px;
+}
+.inspector-big .card-face.big .cf-power {
+	font-size: 72px;
+}
+.inspector-big .card-back span {
+	font-size: 22px;
+}
+/* action buttons first, so the big card viewer never covers them */
+.prompt-buttons {
+	order: -1;
+	justify-content: flex-start;
+	flex: none;
+}
+.prompt-text {
+	font-size: 18px;
+}

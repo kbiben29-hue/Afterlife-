@@ -219,17 +219,29 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 	const canAtk = useMemo(() => new Set(pend.kind === 'main' && myTurnToAct ? attackers(s, me) : []), [s, me, pend.kind, myTurnToAct])
 
 	// ───── clicks ─────
+	const toggle = (next: NonNullable<Sel>) =>
+		setSel((cur) => (cur && cur.kind === next.kind && 'uid' in cur && 'uid' in next && cur.uid === next.uid ? null : next))
+	useEffect(() => {
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') {
+				setSel(null)
+				setMode(null)
+			}
+		}
+		window.addEventListener('keydown', onKey)
+		return () => window.removeEventListener('keydown', onKey)
+	}, [])
 	const clickUnit = (u: FieldUnit, owner: PlayerId) => {
 		if (mode?.kind === 'gear' && owner === me) return act({ t: 'play', player: me, uid: mode.uid, target: u.uid })
 		if (mode?.kind === 'attack' && owner === rv) return act({ t: 'attack', player: me, attacker: mode.attacker, target: { kind: 'unit', uid: u.uid } })
 		setMode(null)
-		setSel({ kind: 'field', uid: u.uid })
+		toggle({ kind: 'field', uid: u.uid })
 	}
 	const clickLegend = (l: LegendSlot, owner: PlayerId) => {
 		if (mode?.kind === 'gear' && owner === me) return act({ t: 'play', player: me, uid: mode.uid, target: l.uid })
 		if (!l.faceUp && owner !== me) return
 		setMode(null)
-		setSel({ kind: 'legend', uid: l.uid })
+		toggle({ kind: 'legend', uid: l.uid })
 	}
 	const clickDie = (d: Die, owner: PlayerId, zone: 'fixer' | 'gigs') => {
 		if (pend.kind === 'chooseGig' && zone === 'fixer' && owner === me && myTurnToAct) return act({ t: 'chooseGig', player: me, dieId: d.id })
@@ -513,7 +525,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 				<div className="hand" ref={handRef} style={{ ['--overlap' as string]: `${Math.min(0, (1150 - P[me].hand.length * 122) / Math.max(1, P[me].hand.length - 1))}px` }}>
 					{P[me].hand.map((uid) =>
 						handVisible ? (
-							<div key={uid} data-uid={uid} className={`slot hand-card ${hl(hint?.hand, uid)} ${sel?.kind === 'hand' && sel.uid === uid ? 'sel' : ''} ${myTurnToAct && canPlay(s, me, uid) && (pend.kind === 'main' || pend.kind === 'react') ? 'playable' : ''}`} onClick={() => setSel({ kind: 'hand', uid })}>
+							<div key={uid} data-uid={uid} className={`slot hand-card ${hl(hint?.hand, uid)} ${sel?.kind === 'hand' && sel.uid === uid ? 'sel' : ''} ${myTurnToAct && canPlay(s, me, uid) && (pend.kind === 'main' || pend.kind === 'react') ? 'playable' : ''}`} onClick={() => toggle({ kind: 'hand', uid })}>
 								<div className="card">
 									<CardFace d={def(s, uid)} />
 								</div>
@@ -546,65 +558,6 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 					</button>
 				</div>
 				{coach}
-				{inspect !== null || sel ? (
-					<div className="inspector">
-						<button className="inspector-close" title="Close" onClick={() => (setSel(null), setMode(null))}>
-							✕
-						</button>
-				{inspect !== null && (
-					<div className="inspect">{inspectHidden ? <CardBack label="LEGEND" /> : <CardFace d={def(s, inspect)} big />}</div>
-				)}
-				{sel?.kind === 'die' &&
-					(() => {
-						const d = [...P[0].gigs, ...P[1].gigs].find((x) => x.id === sel.id)
-						return d ? (
-							<div className="die-info">
-								<PolyDie sides={d.sides} value={d.value} tone={d.id.startsWith(`${me}-`) ? 'cyan' : 'pink'} size={72} />
-								<span>
-									d{d.sides} showing <b>{d.value}</b>
-								</span>
-							</div>
-						) : null
-					})()}
-				{inspectHidden && <div className="inspect-text">A face-down Legend. Nobody — not even you — sees it until it’s flipped with Call a Legend (it’s picked at random). You can still spend it as 1 €$.</div>}
-				{inspect !== null && !inspectHidden && def(s, inspect).text && def(s, inspect).image && <div className="inspect-text">{def(s, inspect).text}</div>}
-				{(() => {
-					if (!sel) return null
-					if (sel.kind === 'gear')
-						return (
-							<div className="attach-info">
-								Equipped to{' '}
-								<button className="link" onClick={() => setSel({ kind: P[0].field.concat(P[1].field).some((u) => u.uid === sel.host) ? 'field' : 'legend', uid: sel.host })}>
-									{P[0].legends.concat(P[1].legends).find((l) => l.uid === sel.host && !l.faceUp) ? 'a face-down Legend' : nameOf(s, sel.host)}
-								</button>
-								{def(s, sel.uid).power ? ` (+${def(s, sel.uid).power} power)` : ''}
-							</div>
-						)
-					if (sel.kind !== 'field' && sel.kind !== 'legend') return null
-					const host = hostOf(sel.uid)
-					if (!host || host.gear.length === 0) return null
-					return (
-						<div className="attach-info">
-							<div className="zl">Equipped ({host.gear.length})</div>
-							<div className="attach-row">
-								{host.gear.map((g) => (
-									<div key={g} className="attach-mini" title={nameOf(s, g)} onClick={() => setSel({ kind: 'gear', uid: g, host: sel.uid })}>
-										<CardFace d={def(s, g)} />
-									</div>
-								))}
-							</div>
-						</div>
-					)
-				})()}
-				<div className="tools">
-					{tools.map((t) => (
-						<button key={t.label} className={`${t.cls ?? ''} ${hinted(t.label) ? 'hint' : ''}`} onClick={t.onClick}>
-							{t.label}
-						</button>
-					))}
-				</div>
-					</div>
-				) : null}
 {sideTools && (
 					<div className="tools small table-tools">
 						<div className="zl">Table tools</div>
@@ -631,6 +584,65 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 					))}
 				</div>
 			</aside>
+				{(inspect !== null || sel) && !mode ? (
+				<div className="inspector inspector-big">
+					<button className="inspector-close" title="Close" onClick={() => (setSel(null), setMode(null))}>
+						✕
+					</button>
+			{inspect !== null && (
+				<div className="inspect">{inspectHidden ? <CardBack label="LEGEND" /> : <CardFace d={def(s, inspect)} big />}</div>
+			)}
+			{sel?.kind === 'die' &&
+				(() => {
+					const d = [...P[0].gigs, ...P[1].gigs].find((x) => x.id === sel.id)
+					return d ? (
+						<div className="die-info">
+							<PolyDie sides={d.sides} value={d.value} tone={d.id.startsWith(`${me}-`) ? 'cyan' : 'pink'} size={72} />
+							<span>
+								d{d.sides} showing <b>{d.value}</b>
+							</span>
+						</div>
+					) : null
+				})()}
+			{inspectHidden && <div className="inspect-text">A face-down Legend. Nobody — not even you — sees it until it’s flipped with Call a Legend (it’s picked at random). You can still spend it as 1 €$.</div>}
+			{inspect !== null && !inspectHidden && def(s, inspect).text && def(s, inspect).image && <div className="inspect-text">{def(s, inspect).text}</div>}
+			{(() => {
+				if (!sel) return null
+				if (sel.kind === 'gear')
+					return (
+						<div className="attach-info">
+							Equipped to{' '}
+							<button className="link" onClick={() => setSel({ kind: P[0].field.concat(P[1].field).some((u) => u.uid === sel.host) ? 'field' : 'legend', uid: sel.host })}>
+								{P[0].legends.concat(P[1].legends).find((l) => l.uid === sel.host && !l.faceUp) ? 'a face-down Legend' : nameOf(s, sel.host)}
+							</button>
+							{def(s, sel.uid).power ? ` (+${def(s, sel.uid).power} power)` : ''}
+						</div>
+					)
+				if (sel.kind !== 'field' && sel.kind !== 'legend') return null
+				const host = hostOf(sel.uid)
+				if (!host || host.gear.length === 0) return null
+				return (
+					<div className="attach-info">
+						<div className="zl">Equipped ({host.gear.length})</div>
+						<div className="attach-row">
+							{host.gear.map((g) => (
+								<div key={g} className="attach-mini" title={nameOf(s, g)} onClick={() => setSel({ kind: 'gear', uid: g, host: sel.uid })}>
+									<CardFace d={def(s, g)} />
+								</div>
+							))}
+						</div>
+					</div>
+				)
+			})()}
+			<div className="tools">
+				{tools.map((t) => (
+					<button key={t.label} className={`${t.cls ?? ''} ${hinted(t.label) ? 'hint' : ''}`} onClick={t.onClick}>
+						{t.label}
+					</button>
+				))}
+			</div>
+				</div>
+			) : null}
 		</div>
 	)
 }
