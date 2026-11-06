@@ -6,6 +6,7 @@ import type { CardPool } from '../data/cards'
 export interface SetupResult {
 	names: [string, string]
 	bot: boolean
+	tutorial?: boolean
 	decks: [DeckList, DeckList]
 	seed: number
 }
@@ -63,12 +64,13 @@ export function Setup({ pool, onStart, onResume, canResume }: { pool: CardPool; 
 		const { deck, unknown } = parseDeckList(pool.cards, m.text)
 		return unknown.length || validateDeck(pool.cards, deck).length ? null : deck
 	}
-	const start = () => {
+	const start = (tutorial = false) => {
 		const seed = (Date.now() ^ Math.floor(Math.random() * 1e9)) >>> 0
 		const d0 = build(decks[0], seed + 1)
 		const d1 = build(decks[1], seed + 2)
 		if (!d0 || !d1) return
-		onStart({ names: [names[0] || 'Player 1', names[1] || 'Player 2'], bot, decks: [d0, d1], seed })
+		if (tutorial) onStart({ names: [names[0] || 'You', 'Street AI'], bot: true, tutorial: true, decks: [d0, d1], seed })
+		else onStart({ names: [names[0] || 'Player 1', names[1] || 'Player 2'], bot, decks: [d0, d1], seed })
 	}
 	return (
 		<div className="setup">
@@ -98,8 +100,11 @@ export function Setup({ pool, onStart, onResume, canResume }: { pool: CardPool; 
 				))}
 			</div>
 			<div className="setup-buttons">
-				<button className="primary" onClick={start}>
+				<button className="primary" onClick={() => start()}>
 					Jack in
+				</button>
+				<button className="tutorial-btn" onClick={() => start(true)}>
+					Tutorial: practice game
 				</button>
 				{canResume && <button onClick={onResume}>Resume saved game</button>}
 			</div>

@@ -11,6 +11,13 @@ move by move.
 > **Early test version.** The core rules are enforced and covered by automated tests, but most
 > card abilities are not automated yet (see below).
 
+## Tutorial
+
+New to the game? Press **Tutorial: practice game** on the setup screen. A coach panel explains each
+step of a real game against the Street AI — gaining Gigs, selling for Eddies, playing Units and Gear,
+attacking, blocking, stealing — and makes the suggested card, die or button glow. It works with the
+real cards or the placeholders, and can be turned off at any point.
+
 ## What the game does for you
 
 Enforced by the rules engine (`src/engine/`):

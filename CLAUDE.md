@@ -28,6 +28,8 @@ npm run typecheck           # tsc -b (needs npm install for the React types)
   deck-list parsing.
 - `src/bot/bot.ts` — greedy "Street AI".
 - `src/data/placeholder.ts` — generic placeholder pool; `src/data/cards.ts` loads `public/cards/cards.json` when present.
+- `src/ui/coach.ts` — tutorial coach: `INTRO` pages, `coachFor(state, me, seen)` explains the current step and
+  turns the bot's suggested move into a `Hint` (glowing hand cards / units / dice / buttons); `eventNote()` for one-off notes.
 - `src/ui/` — `Board.tsx` (table, prompt bar, table tools), `Setup.tsx`, `Card.tsx`, `styles.css`.
 - `src/App.tsx` — fit-to-screen scaling of the 1600×1000 stage, history/undo, autosave (localStorage), bot loop.
 

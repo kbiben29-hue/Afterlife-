@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { actor, attackers, available, canPlay, def, gigsToSteal, legalGigDice, nameOf, streetCred, unitPower } from '../engine/engine'
 import { other, type Die, type FieldUnit, type GameState, type Intent, type LegendSlot, type PlayerId } from '../engine/types'
 import { CardBack, CardFace } from './Card'
+import type { Hint } from './coach'
 
 type Sel =
 	| { kind: 'hand'; uid: number }
@@ -20,21 +21,31 @@ export interface BoardProps {
 	onUndo?: () => void
 	onMenu: () => void
 	onExport: () => void
+	hint?: Hint
+	coach?: ReactNode
 }
 
-function DieView({ d, onClick, hot, selected }: { d: Die; onClick?: () => void; hot?: boolean; selected?: boolean }) {
+function DieView({ d, onClick, hot, selected, hinted }: { d: Die; onClick?: () => void; hot?: boolean; selected?: boolean; hinted?: boolean }) {
 	return (
-		<button className={`die d${d.sides} ${hot ? 'hot' : ''} ${selected ? 'sel' : ''}`} onClick={onClick} title={`d${d.sides}`}>
+		<button className={`die d${d.sides} ${hot ? 'hot' : ''} ${selected ? 'sel' : ''} ${hinted ? 'hint' : ''}`} onClick={onClick} title={`d${d.sides}`}>
 			<span className="die-v">{d.value}</span>
 			<span className="die-s">d{d.sides}</span>
 		</button>
 	)
 }
 
-export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, onExport }: BoardProps) {
+export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, onExport, hint, coach }: BoardProps) {
 	const [sel, setSel] = useState<Sel>(null)
 	const [mode, setMode] = useState<Mode>(null)
 	const [error, setError] = useState<string | null>(null)
+	const hinted = (label: string) => !mode && !!hint?.buttons?.some((b) => label.startsWith(b))
+	const hl = (list: number[] | undefined, uid: number) => (list?.includes(uid) ? 'hint' : '')
+	// hint.units = [attacker or host, target]: glow the first until you've chosen it, then the second
+	const unitHint = (uid: number) => {
+		const u = hint?.units ?? []
+		if (mode?.kind === 'attack' || mode?.kind === 'gear') return u.length > 1 && u[1] === uid ? 'hint' : u.length === 1 && mode.kind === 'gear' && u[0] === uid ? 'hint' : ''
+		return u[0] === uid && !(hint?.hand?.length) ? 'hint' : ''
+	}
 	const logRef = useRef<HTMLDivElement>(null)
 	const me = viewer
 	const rv = other(me)
@@ -90,7 +101,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		const targetable = (mode?.kind === 'attack' && owner === rv && u.spent) || (mode?.kind === 'gear' && owner === me)
 		const isAtk = atk && (atk.attacker === u.uid || (atk.target.kind === 'unit' && atk.target.uid === u.uid))
 		return (
-			<div key={u.uid} className={`slot unit ${u.spent ? 'spent' : ''} ${sel?.kind === 'field' && sel.uid === u.uid ? 'sel' : ''} ${targetable ? 'target' : ''} ${canAtk.has(u.uid) ? 'can-attack' : ''} ${isAtk ? 'in-fight' : ''}`} onClick={() => clickUnit(u, owner)}>
+			<div key={u.uid} className={`slot unit ${u.spent ? 'spent' : ''} ${sel?.kind === 'field' && sel.uid === u.uid ? 'sel' : ''} ${targetable ? 'target' : ''} ${canAtk.has(u.uid) ? 'can-attack' : ''} ${isAtk ? 'in-fight' : ''} ${unitHint(u.uid)}`} onClick={() => clickUnit(u, owner)}>
 				<div className="card">
 					<CardFace d={d} />
 				</div>
@@ -105,7 +116,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		const d = def(s, l.uid)
 		const visible = l.faceUp
 		return (
-			<div key={l.uid} className={`slot legend ${l.spent ? 'spent' : ''} ${sel?.kind === 'legend' && sel.uid === l.uid ? 'sel' : ''} ${mode?.kind === 'gear' && owner === me ? 'target' : ''}`} onClick={() => clickLegend(l, owner)}>
+			<div key={l.uid} className={`slot legend ${l.spent ? 'spent' : ''} ${sel?.kind === 'legend' && sel.uid === l.uid ? 'sel' : ''} ${mode?.kind === 'gear' && owner === me ? 'target' : ''} ${hl(hint?.legends, l.uid)}`} onClick={() => clickLegend(l, owner)}>
 				<div className="card">{visible ? <CardFace d={d} /> : <CardBack label="LEGEND" />}</div>
 				{l.gear.length > 0 && <div className="badge gear">⚙{l.gear.length}</div>}
 			</div>
@@ -151,7 +162,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 						<div className="zl">Fixer</div>
 						<div className="dice-row">
 							{pl.fixer.map((d) => (
-								<DieView key={d.id} d={{ ...d, value: d.sides }} hot={fixerHot.has(d.id)} onClick={() => clickDie(d, p, 'fixer')} />
+								<DieView key={d.id} d={{ ...d, value: d.sides }} hot={fixerHot.has(d.id)} hinted={!!hint?.dice?.includes(d.id)} onClick={() => clickDie(d, p, 'fixer')} />
 							))}
 						</div>
 						<div className="zl">
@@ -159,7 +170,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 						</div>
 						<div className="dice-row">
 							{pl.gigs.map((d) => (
-								<DieView key={d.id} d={d} hot={stealHot} selected={sel?.kind === 'die' && sel.id === d.id} onClick={() => clickDie(d, p, 'gigs')} />
+								<DieView key={d.id} d={d} hot={stealHot} hinted={!!hint?.dice?.includes(d.id)} selected={sel?.kind === 'die' && sel.id === d.id} onClick={() => clickDie(d, p, 'gigs')} />
 							))}
 						</div>
 					</div>
@@ -168,7 +179,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 					{pl.field.length === 0 && <div className="empty">Field</div>}
 					{pl.field.map((u) => unitView(u, p))}
 					{mode?.kind === 'attack' && p === rv && (
-						<button className="gig-target" onClick={() => act({ t: 'attack', player: me, attacker: mode.attacker, target: { kind: 'gigs' } })}>
+						<button className={`gig-target ${hint?.gigTarget ? 'hint' : ''}`} onClick={() => act({ t: 'attack', player: me, attacker: mode.attacker, target: { kind: 'gigs' } })}>
 							Attack Gigs
 							<small>steals {gigsToSteal(unitPower(s, P[me].field.find((u) => u.uid === mode.attacker)!))}</small>
 						</button>
@@ -268,7 +279,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 				{inspect !== null && def(s, inspect).text && def(s, inspect).image && <div className="inspect-text">{def(s, inspect).text}</div>}
 				<div className="tools">
 					{tools.map((t) => (
-						<button key={t.label} className={t.cls} onClick={t.onClick}>
+						<button key={t.label} className={`${t.cls ?? ''} ${hinted(t.label) ? 'hint' : ''}`} onClick={t.onClick}>
 							{t.label}
 						</button>
 					))}
@@ -292,7 +303,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 					<div className="prompt-text">{prompt}</div>
 					<div className="prompt-buttons">
 						{buttons.map((b) => (
-							<button key={b.label} className={b.primary ? 'primary' : ''} onClick={b.onClick}>
+							<button key={b.label} className={`${b.primary ? 'primary' : ''} ${hinted(b.label) ? 'hint' : ''}`} onClick={b.onClick}>
 								{b.label}
 							</button>
 						))}
@@ -307,7 +318,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 				<div className="hand" style={{ ['--overlap' as string]: `${Math.min(0, (950 - P[me].hand.length * 120) / Math.max(1, P[me].hand.length - 1))}px` }}>
 					{P[me].hand.map((uid) =>
 						handVisible ? (
-							<div key={uid} className={`slot hand-card ${sel?.kind === 'hand' && sel.uid === uid ? 'sel' : ''} ${myTurnToAct && canPlay(s, me, uid) && (pend.kind === 'main' || pend.kind === 'react') ? 'playable' : ''}`} onClick={() => setSel({ kind: 'hand', uid })}>
+							<div key={uid} className={`slot hand-card ${hl(hint?.hand, uid)} ${sel?.kind === 'hand' && sel.uid === uid ? 'sel' : ''} ${myTurnToAct && canPlay(s, me, uid) && (pend.kind === 'main' || pend.kind === 'react') ? 'playable' : ''}`} onClick={() => setSel({ kind: 'hand', uid })}>
 								<div className="card">
 									<CardFace d={def(s, uid)} />
 								</div>
@@ -329,6 +340,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 					{onUndo && <button onClick={onUndo}>Undo</button>}
 					<button onClick={onExport}>Export</button>
 				</div>
+				{coach}
 				<div className="status">
 					{s.overtime && <div className="ot">OVERTIME — 7 Gigs wins instantly</div>}
 					<div>

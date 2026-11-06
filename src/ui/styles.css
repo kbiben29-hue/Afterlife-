@@ -797,3 +797,74 @@ button.tool {
 .slot.unit .cf-power {
 	display: none;
 }
+
+/* ───── tutorial ───── */
+.coach {
+	border: 2px solid var(--yellow);
+	background: linear-gradient(170deg, rgba(243, 230, 0, 0.1), rgba(16, 17, 26, 0.95) 60%);
+	padding: 12px 14px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	box-shadow: 0 0 24px rgba(243, 230, 0, 0.12);
+}
+.coach-tag {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	color: var(--yellow);
+	font-size: 12px;
+	letter-spacing: 0.18em;
+}
+.coach-off {
+	font-size: 12px;
+	padding: 2px 8px;
+	letter-spacing: 0.04em;
+	clip-path: none;
+}
+.coach-title {
+	font-size: 22px;
+	font-weight: 700;
+	color: #fff;
+}
+.coach-body {
+	font-size: 16px;
+	line-height: 1.4;
+	color: #d6d7e4;
+}
+.coach .primary {
+	align-self: flex-end;
+	font-size: 18px;
+}
+.tutorial-btn {
+	border-color: var(--cyan);
+	color: var(--cyan);
+}
+.hint {
+	animation: hint-glow 0.9s ease-in-out infinite alternate;
+}
+.slot.hint .card {
+	outline: 3px solid var(--yellow);
+	outline-offset: 3px;
+	box-shadow: 0 0 22px var(--yellow);
+}
+button.hint {
+	outline: 3px solid var(--yellow);
+	outline-offset: 2px;
+	clip-path: none;
+}
+.die.hint {
+	background: var(--yellow);
+}
+.die.hint .die-v,
+.die.hint .die-s {
+	color: #000 !important;
+}
+@keyframes hint-glow {
+	from {
+		filter: brightness(1);
+	}
+	to {
+		filter: brightness(1.45);
+	}
+}
