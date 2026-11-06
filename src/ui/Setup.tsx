@@ -7,6 +7,7 @@ export interface SetupResult {
 	names: [string, string]
 	bot: boolean
 	tutorial?: boolean
+	online?: 'host' | 'guest'
 	decks: [DeckList, DeckList]
 	seed: number
 }
@@ -52,9 +53,25 @@ function DeckPicker({ pool, value, onChange, label }: { pool: CardPool; value: D
 	)
 }
 
-export function Setup({ pool, onStart, onResume, canResume }: { pool: CardPool; onStart: (r: SetupResult) => void; onResume: () => void; canResume: boolean }) {
+export function Setup({
+	pool,
+	onStart,
+	onResume,
+	canResume,
+	joinCode,
+	resumeLabel,
+}: {
+	pool: CardPool
+	onStart: (r: SetupResult) => void
+	onResume: () => void
+	canResume: boolean
+	/** set when the page was opened from a friend's invite link */
+	joinCode?: string | null
+	resumeLabel?: string
+}) {
 	const [bot, setBot] = useState(true)
-	const [names, setNames] = useState<[string, string]>(['Player 1', 'Street AI'])
+	const [online, setOnline] = useState(false)
+	const [names, setNames] = useState<[string, string]>([joinCode ? 'Player 2' : 'Player 1', 'Street AI'])
 	const [decks, setDecks] = useState<[DeckMode, DeckMode]>([
 		{ mode: 'random', colors: 'any' },
 		{ mode: 'random', colors: 'any' },
@@ -69,7 +86,9 @@ export function Setup({ pool, onStart, onResume, canResume }: { pool: CardPool; 
 		const d0 = build(decks[0], seed + 1)
 		const d1 = build(decks[1], seed + 2)
 		if (!d0 || !d1) return
-		if (tutorial) onStart({ names: [names[0] || 'You', 'Street AI'], bot: true, tutorial: true, decks: [d0, d1], seed })
+		if (joinCode) onStart({ names: [names[0] || 'Player 2', ''], bot: false, online: 'guest', decks: [d0, d0], seed })
+		else if (online && !tutorial) onStart({ names: [names[0] || 'Player 1', ''], bot: false, online: 'host', decks: [d0, d0], seed })
+		else if (tutorial) onStart({ names: [names[0] || 'You', 'Street AI'], bot: true, tutorial: true, decks: [d0, d1], seed })
 		else onStart({ names: [names[0] || 'Player 1', names[1] || 'Player 2'], bot, decks: [d0, d1], seed })
 	}
 	return (
@@ -85,16 +104,25 @@ export function Setup({ pool, onStart, onResume, canResume }: { pool: CardPool; 
 						? `Cards loaded from the official database: ${Object.keys(pool.cards).length}${pool.note ? ` (${pool.note})` : ''}`
 						: `Placeholder cards${pool.note ? ` — ${pool.note}` : ''}`}
 			</div>
-			<div className="seg big">
-				<button className={bot ? 'on' : ''} onClick={() => (setBot(true), setNames([names[0], 'Street AI']))}>
-					vs Computer
-				</button>
-				<button className={!bot ? 'on' : ''} onClick={() => (setBot(false), setNames([names[0], 'Player 2']))}>
-					Two players, one screen
-				</button>
-			</div>
+			{joinCode ? (
+				<div className="join-banner">
+					You’ve been invited to an online game <b>({joinCode})</b>. Pick your name and deck, then join.
+				</div>
+			) : (
+				<div className="seg big">
+					<button className={bot && !online ? 'on' : ''} onClick={() => (setBot(true), setOnline(false), setNames([names[0], 'Street AI']))}>
+						vs Computer
+					</button>
+					<button className={!bot && !online ? 'on' : ''} onClick={() => (setBot(false), setOnline(false), setNames([names[0], 'Player 2']))}>
+						Two players, one screen
+					</button>
+					<button className={online ? 'on' : ''} onClick={() => (setBot(false), setOnline(true))}>
+						Play a friend online
+					</button>
+				</div>
+			)}
 			<div className="players">
-				{[0, 1].map((i) => (
+				{(joinCode || online ? [0] : [0, 1]).map((i) => (
 					<div key={i} className="player-setup">
 						<input value={names[i]} onChange={(e) => setNames(i === 0 ? [e.target.value, names[1]] : [names[0], e.target.value])} />
 						<DeckPicker pool={pool} label={names[i]} value={decks[i]} onChange={(v) => setDecks(i === 0 ? [v, decks[1]] : [decks[0], v])} />
@@ -103,12 +131,14 @@ export function Setup({ pool, onStart, onResume, canResume }: { pool: CardPool; 
 			</div>
 			<div className="setup-buttons">
 				<button className="primary" onClick={() => start()}>
-					Jack in
+					{joinCode ? 'Join game' : online ? 'Create invite link' : 'Jack in'}
 				</button>
-				<button className="tutorial-btn" onClick={() => start(true)}>
-					Tutorial: practice game
-				</button>
-				{canResume && <button onClick={onResume}>Resume saved game</button>}
+				{!joinCode && (
+					<button className="tutorial-btn" onClick={() => start(true)}>
+						Tutorial: practice game
+					</button>
+				)}
+				{canResume && !joinCode && <button onClick={onResume}>{resumeLabel ?? 'Resume saved game'}</button>}
 			</div>
 		</div>
 	)

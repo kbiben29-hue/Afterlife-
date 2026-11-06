@@ -33,6 +33,15 @@ npm run typecheck           # tsc -b (needs npm install for the React types)
 - `src/ui/` — `Board.tsx` (table, prompt bar, table tools), `Setup.tsx`, `Card.tsx`, `styles.css`.
 - `src/App.tsx` — fit-to-screen scaling of the 1600×1000 stage, history/undo, autosave (localStorage), bot loop.
 
+## Online play
+
+`src/net/transport.ts` (PeerJS loaded from unpkg on demand; `?net=local` = BroadcastChannel between
+tabs, used for testing) and `src/net/online.ts` (protocol). The host (seat 0) is authoritative: it
+applies its own and the guest's intents with the engine and sends `{type:'state'}` (cards stripped;
+sent once in `start`). The guest (seat 1) validates locally with `tryApply`, sends `{type:'intent'}`,
+and renders the host's states. Peer id = `afterlife-<code>`, stable per game, so a refreshed host
+re-opens the same id and a guest's `hello` mid-game gets the current state. Undo is off online.
+
 ## Releases
 
 `.github/workflows/release.yml` runs on every push to main: tests → web build deployed to this

@@ -17,6 +17,15 @@ move by move.
 > **Early test version.** The core rules are enforced and covered by automated tests, but most
 > card abilities are not automated yet (see below).
 
+## Playing a friend online
+
+On the setup screen choose **Play a friend online**, pick your deck and press **Create invite link**.
+Send the link to your friend; when they open it, pick a deck and press **Join game**, the game starts
+for both of you. The two browsers connect directly (WebRTC via the free PeerJS service); the host's
+browser referees every move. If either of you reloads, choose **Resume online game** (the guest can
+also just reopen the invite link). Keep the host's page open for the whole game. Some strict networks
+(certain office or school Wi-Fi) block direct connections.
+
 ## Tutorial
 
 New to the game? Press **Tutorial: practice game** on the setup screen. A coach panel explains each

@@ -463,7 +463,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 	// ───── selection actions ─────
 	const tableOpen = pend.kind === 'main' || pend.kind === 'react'
 	const tools: { label: string; onClick: () => void; cls?: string }[] = []
-	const manual = (m: Extract<Intent, { t: 'manual' }>['m']) => act({ t: 'manual', player: (who ?? me) as PlayerId, m })
+	const manual = (m: Extract<Intent, { t: 'manual' }>['m']) => act({ t: 'manual', player: me, m })
 	if (sel?.kind === 'hand' && myTurnToAct && tableOpen) {
 		const d = def(s, sel.uid)
 		if (canPlay(s, me, sel.uid))

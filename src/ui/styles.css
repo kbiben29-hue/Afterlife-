@@ -1762,3 +1762,97 @@ button.hint {
 .prompt-text {
 	font-size: 18px;
 }
+
+/* ───── online play ───── */
+.seg.big button {
+	font-size: 20px;
+	padding: 12px 22px;
+}
+.join-banner {
+	font-size: 22px;
+	padding: 12px 20px;
+	border: 1px solid var(--cyan);
+	background: rgba(25, 227, 240, 0.08);
+}
+.join-banner b {
+	color: var(--cyan);
+}
+.lobby {
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 18px;
+	font-size: 20px;
+	text-align: center;
+	padding: 0 120px;
+}
+.lobby h2 {
+	font-size: 48px;
+	margin: 0;
+	color: var(--yellow);
+	letter-spacing: 0.06em;
+}
+.lobby p {
+	margin: 0;
+}
+.invite {
+	display: flex;
+	gap: 10px;
+	width: 900px;
+}
+.invite input {
+	flex: 1;
+	font-size: 20px;
+	padding: 12px 14px;
+	background: #0b0c14;
+	border: 2px solid var(--cyan);
+	color: var(--cyan);
+	-webkit-user-select: all;
+	user-select: all;
+}
+.invite button {
+	font-size: 20px;
+	padding: 12px 24px;
+}
+.lobby-status {
+	font-size: 22px;
+	color: var(--cyan);
+	animation: pulse 1.2s infinite alternate;
+}
+.lobby-status.bad {
+	color: var(--pink);
+	animation: none;
+}
+.netpanel {
+	border: 1px solid var(--line);
+	padding: 8px 10px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	font-size: 15px;
+}
+.netpanel.ok {
+	border-color: rgba(62, 224, 138, 0.6);
+}
+.netpanel.bad {
+	border-color: rgba(255, 42, 109, 0.6);
+}
+.net-status .dot {
+	display: inline-block;
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	background: var(--pink);
+	margin-right: 4px;
+}
+.netpanel.ok .dot {
+	background: var(--green);
+}
+.error-inline {
+	background: var(--pink);
+	color: #000;
+	padding: 4px 8px;
+	cursor: pointer;
+}
