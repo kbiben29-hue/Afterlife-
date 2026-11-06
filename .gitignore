@@ -9,3 +9,7 @@ vendor/
 
 .screens/
 .DS_Store
+
+# Tauri desktop build output
+src-tauri/target/
+src-tauri/gen/

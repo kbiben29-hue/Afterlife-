@@ -1,0 +1,149 @@
+# Every push to main (and manual runs) publishes, like Ready Room:
+#  • the play site → GitHub Pages of the public repo kbiben29-hue/afterlife-play
+#      https://kbiben29-hue.github.io/afterlife-play/
+#  • Mac (.dmg, universal) and Windows (.exe) apps → a new release on afterlife-play, always at
+#      https://github.com/kbiben29-hue/afterlife-play/releases/latest/download/Afterlife-Mac.dmg
+#      https://github.com/kbiben29-hue/afterlife-play/releases/latest/download/Afterlife-Windows-Setup.exe
+# This repo can stay private; afterlife-play only ever holds the compiled game.
+# No card data is published: the site and apps fetch it from the official card database on each
+# player's own device.
+#
+# Needs the repository secret PLAY_TOKEN: a fine-grained token with Contents: Read and write on
+# kbiben29-hue/afterlife-play.
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**']
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+
+  site:
+    needs: check
+    runs-on: ubuntu-latest
+    env:
+      PLAY_TOKEN: ${{ secrets.PLAY_TOKEN }}
+    steps:
+      - name: Skip without PLAY_TOKEN
+        if: env.PLAY_TOKEN == ''
+        run: echo "::warning::PLAY_TOKEN is not set; play site not published"
+      - uses: actions/checkout@v4
+        if: env.PLAY_TOKEN != ''
+      - uses: actions/setup-node@v4
+        if: env.PLAY_TOKEN != ''
+        with:
+          node-version: 22
+      - if: env.PLAY_TOKEN != ''
+        run: npm install --no-audit --no-fund && npm run build
+      - name: Check no card data was bundled
+        if: env.PLAY_TOKEN != ''
+        run: if [ -e dist/cards ]; then echo "dist/cards must not be published"; exit 1; fi
+      - name: Push it to afterlife-play
+        if: env.PLAY_TOKEN != ''
+        run: |
+          cd dist
+          touch .nojekyll
+          cat > README.md <<'MD'
+          # Afterlife — play
+
+          Play in your browser (computer, iPad, phone): https://kbiben29-hue.github.io/afterlife-play/
+
+          Mac app: https://github.com/kbiben29-hue/afterlife-play/releases/latest/download/Afterlife-Mac.dmg
+
+          Windows app: https://github.com/kbiben29-hue/afterlife-play/releases/latest/download/Afterlife-Windows-Setup.exe
+
+          An unofficial fan table for the Cyberpunk Trading Card Game. Not affiliated with WeirdCo or CD PROJEKT RED.
+          MD
+          git init -q
+          git config user.name "afterlife-release"
+          git config user.email "afterlife-release@users.noreply.github.com"
+          git checkout -q -b gh-pages
+          git add -A
+          git commit -q -m "Play site build ${{ github.run_number }}"
+          git push -f "https://x-access-token:${PLAY_TOKEN}@github.com/kbiben29-hue/afterlife-play.git" gh-pages
+
+  desktop:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: --target universal-apple-darwin
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+          - platform: windows-latest
+            args: ''
+            rust-targets: ''
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - run: npm install --no-audit --no-fund
+      - run: npx --yes @tauri-apps/cli@^2 build ${{ matrix.args }}
+      - name: Check no card data was bundled
+        shell: bash
+        run: if [ -e dist/cards ]; then echo "dist/cards must not be in an app build"; exit 1; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: afterlife-${{ matrix.platform }}
+          path: |
+            src-tauri/target/**/release/bundle/dmg/*.dmg
+            src-tauri/target/**/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+  publish:
+    needs: desktop
+    runs-on: ubuntu-latest
+    env:
+      PLAY_TOKEN: ${{ secrets.PLAY_TOKEN }}
+    steps:
+      - name: Skip without PLAY_TOKEN
+        if: env.PLAY_TOKEN == ''
+        run: echo "::warning::PLAY_TOKEN is not set; apps not published (they are still attached to this run)"
+      - uses: actions/download-artifact@v4
+        if: env.PLAY_TOKEN != ''
+        with:
+          path: installers
+      - name: Release on afterlife-play
+        if: env.PLAY_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ secrets.PLAY_TOKEN }}
+        run: |
+          set -e
+          mkdir out
+          cp "$(find installers -name '*.dmg' | head -1)" out/Afterlife-Mac.dmg
+          cp "$(find installers -name '*.exe' | head -1)" out/Afterlife-Windows-Setup.exe
+          tag="build-${{ github.run_number }}"
+          gh release create "$tag" out/* \
+            --repo kbiben29-hue/afterlife-play \
+            --title "Afterlife (build ${{ github.run_number }})" \
+            --notes "Mac: Afterlife-Mac.dmg (Apple silicon and Intel). Windows: Afterlife-Windows-Setup.exe. The apps load the cards from the official card database on first launch (internet needed). They are not code-signed: on a Mac, right-click the app and choose Open (or System Settings → Privacy & Security → Open Anyway); on Windows, click More info → Run anyway." \
+            --latest
+          # keep only the 3 newest builds
+          gh release list --repo kbiben29-hue/afterlife-play --limit 100 --json tagName,createdAt \
+            --jq 'sort_by(.createdAt) | reverse | .[3:] | .[].tagName' |
+            while read -r old; do gh release delete "$old" --repo kbiben29-hue/afterlife-play --yes --cleanup-tag; done

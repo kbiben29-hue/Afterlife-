@@ -118,7 +118,8 @@ button.tool {
 	padding: 6px 14px;
 	border: 1px solid var(--line);
 }
-.source.database {
+.source.database,
+.source.online {
 	color: var(--green);
 	border-color: var(--green);
 }

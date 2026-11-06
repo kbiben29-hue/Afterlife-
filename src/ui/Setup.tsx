@@ -81,7 +81,9 @@ export function Setup({ pool, onStart, onResume, canResume }: { pool: CardPool; 
 			<div className={`source ${pool.source}`}>
 				{pool.source === 'database'
 					? `Card database loaded: ${Object.keys(pool.cards).length} cards`
-					: 'Placeholder cards — run “npm run fetch-cards” to load the real card database'}
+					: pool.source === 'online'
+						? `Cards loaded from the official database: ${Object.keys(pool.cards).length}${pool.note ? ` (${pool.note})` : ''}`
+						: `Placeholder cards${pool.note ? ` — ${pool.note}` : ''}`}
 			</div>
 			<div className="seg big">
 				<button className={bot ? 'on' : ''} onClick={() => (setBot(true), setNames([names[0], 'Street AI']))}>

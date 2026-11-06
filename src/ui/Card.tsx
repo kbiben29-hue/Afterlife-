@@ -1,10 +1,14 @@
+import { useState } from 'react'
 import type { CardDef } from '../engine/types'
+import { imageSrc } from '../data/cards'
 
 const KW: Record<string, string> = { adrenaline: 'ADR', blocker: 'BLK', quick: 'QCK', goSolo: 'SOLO' }
 const TYPE_ICON: Record<string, string> = { legend: '★', unit: '◆', gear: '⚙', program: '⌁' }
 
 export function CardFace({ d, big = false }: { d: CardDef; big?: boolean }) {
-	if (d.image) return <img className="card-img" src={`${import.meta.env.BASE_URL}${d.image}`} alt={d.name} draggable={false} />
+	const [broken, setBroken] = useState(false)
+	if (d.image && !broken)
+		return <img className="card-img" src={imageSrc(d.image)} alt={d.name} draggable={false} loading="lazy" referrerPolicy="no-referrer" onError={() => setBroken(true)} />
 	return (
 		<div className={`card-face c-${d.color ?? 'none'} ${big ? 'big' : ''}`}>
 			<div className="cf-top">

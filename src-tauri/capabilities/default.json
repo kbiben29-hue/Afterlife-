@@ -1,0 +1,7 @@
+{
+	"$schema": "../gen/schemas/desktop-schema.json",
+	"identifier": "default",
+	"description": "The main window: core APIs only; the app's own cards_fetch_text command is always available.",
+	"windows": ["main"],
+	"permissions": ["core:default"]
+}

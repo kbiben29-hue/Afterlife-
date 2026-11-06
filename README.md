@@ -1,5 +1,11 @@
 # Afterlife
 
+**Play:** https://kbiben29-hue.github.io/afterlife-play/ ·
+**Mac app:** [Afterlife-Mac.dmg](https://github.com/kbiben29-hue/afterlife-play/releases/latest/download/Afterlife-Mac.dmg) ·
+**Windows app:** [Afterlife-Windows-Setup.exe](https://github.com/kbiben29-hue/afterlife-play/releases/latest/download/Afterlife-Windows-Setup.exe)
+
+Every push to `main` rebuilds all three (`.github/workflows/release.yml`); the links always point at the newest build.
+
 Afterlife lets you play the
 [_Cyberpunk Trading Card Game_](https://cyberpunktcg.com/) (WeirdCo, under licence from CD PROJEKT RED)
 in a web browser. It is a fan project with no official standing. Two people can share one screen,

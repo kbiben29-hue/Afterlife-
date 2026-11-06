@@ -33,6 +33,20 @@ npm run typecheck           # tsc -b (needs npm install for the React types)
 - `src/ui/` — `Board.tsx` (table, prompt bar, table tools), `Setup.tsx`, `Card.tsx`, `styles.css`.
 - `src/App.tsx` — fit-to-screen scaling of the 1600×1000 stage, history/undo, autosave (localStorage), bot loop.
 
+## Releases
+
+`.github/workflows/release.yml` runs on every push to main: tests → web build pushed to the
+`gh-pages` branch of the public repo kbiben29-hue/afterlife-play (the play link) → Tauri apps
+(`src-tauri/`, macOS universal .dmg + Windows NSIS .exe) → a new release on afterlife-play with the
+stable names `Afterlife-Mac.dmg` / `Afterlife-Windows-Setup.exe` (keeps the 3 newest). Needs the
+`PLAY_TOKEN` secret (fine-grained token, Contents read/write on afterlife-play). Same pattern as Ready Room.
+
+Card data in published builds: `src/data/cards.ts` loads `public/cards/cards.json` if present (local
+only), else fetches the Netdeck.gg API live on the player's device (desktop: through the
+`cards_fetch_text` Tauri command, restricted to api.netdeck.gg; browser: plain fetch, which depends on
+the API's CORS policy) and caches it in localStorage; images load from the API's image URLs.
+The workflow fails if `dist/cards` exists, so card data is never published.
+
 ## Hard rules
 
 - **Engine determinism**: no `Math.random`, `Date.now` or `new Date` in `src/engine/**` and

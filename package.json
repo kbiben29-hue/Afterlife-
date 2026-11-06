@@ -11,7 +11,9 @@
 		"test": "tsx --test src/**/*.test.ts tools/*.test.ts",
 		"fetch-cards": "tsx tools/fetch-cards.ts",
 		"fetch-deck": "tsx tools/fetch-deck.ts",
-		"sim": "tsx tools/sim.ts"
+		"sim": "tsx tools/sim.ts",
+		"desktop:dev": "npx --yes @tauri-apps/cli@^2 dev",
+		"desktop:build": "npx --yes @tauri-apps/cli@^2 build"
 	},
 	"dependencies": {
 		"react": "^19.2.0",
