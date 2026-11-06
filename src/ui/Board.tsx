@@ -790,14 +790,12 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 				</div>
 
 				{showViewer && (
-					<div className="p-sheet-wrap" onClick={() => (setSel(null), setMode(null))}>
-						<div className="p-sheet card-sheet" onClick={(e) => e.stopPropagation()}>
-							<div className="p-grab" />
-							<button className="inspector-close" onClick={() => (setSel(null), setMode(null))}>
-								✕
-							</button>
-							{viewerContent}
-						</div>
+					// a large floating card: the table stays visible (and tappable) around it
+					<div className="p-float card-sheet">
+						<button className="inspector-close" onClick={() => (setSel(null), setMode(null))}>
+							✕
+						</button>
+						{viewerContent}
 					</div>
 				)}
 				{sheet && (
