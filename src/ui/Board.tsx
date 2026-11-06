@@ -491,16 +491,81 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 
 	return (
 		<div className="board" onPointerDown={unlockAudio}>
-			<aside className="left">
-				<div className="inspect">
-					{inspect === null ? (
-						<div className="inspect-hint">Tap a card to look at it</div>
-					) : inspectHidden ? (
-						<CardBack label="LEGEND" />
-					) : (
-						<CardFace d={def(s, inspect)} big />
+
+			<main className="table">
+				{side(rv, true)}
+				<div className="prompt">
+					<div className="prompt-text">{prompt}</div>
+					<div className="prompt-buttons">
+						{buttons.map((b) => (
+							<button key={b.label} className={`${b.primary ? 'primary' : ''} ${hinted(b.label) ? 'hint' : ''}`} onClick={b.onClick}>
+								{b.label}
+							</button>
+						))}
+					</div>
+					{error && (
+						<div className="error" onClick={() => setError(null)}>
+							{error}
+						</div>
 					)}
 				</div>
+				{side(me, false)}
+				<div className="hand" ref={handRef} style={{ ['--overlap' as string]: `${Math.min(0, (1150 - P[me].hand.length * 122) / Math.max(1, P[me].hand.length - 1))}px` }}>
+					{P[me].hand.map((uid) =>
+						handVisible ? (
+							<div key={uid} data-uid={uid} className={`slot hand-card ${hl(hint?.hand, uid)} ${sel?.kind === 'hand' && sel.uid === uid ? 'sel' : ''} ${myTurnToAct && canPlay(s, me, uid) && (pend.kind === 'main' || pend.kind === 'react') ? 'playable' : ''}`} onClick={() => setSel({ kind: 'hand', uid })}>
+								<div className="card">
+									<CardFace d={def(s, uid)} />
+								</div>
+							</div>
+						) : (
+							<div key={uid} className="slot hand-card">
+								<div className="card">
+									<CardBack />
+								</div>
+							</div>
+						),
+					)}
+				</div>
+			</main>
+
+			<aside className="right">
+				<div className="menu-row">
+					<button onClick={onMenu}>Menu</button>
+					{onUndo && <button onClick={onUndo}>Undo</button>}
+					<button onClick={onExport}>Export</button>
+					<button
+						title={soundOn ? 'Mute sound' : 'Turn sound on'}
+						onClick={() => {
+							setMuted(soundOn)
+							setSoundOn(!soundOn)
+							if (!soundOn) window.setTimeout(sfx.turn, 50)
+						}}
+					>
+						{soundOn ? '🔊' : '🔇'}
+					</button>
+				</div>
+				{coach}
+				{inspect !== null || sel ? (
+					<div className="inspector">
+						<button className="inspector-close" title="Close" onClick={() => (setSel(null), setMode(null))}>
+							✕
+						</button>
+				{inspect !== null && (
+					<div className="inspect">{inspectHidden ? <CardBack label="LEGEND" /> : <CardFace d={def(s, inspect)} big />}</div>
+				)}
+				{sel?.kind === 'die' &&
+					(() => {
+						const d = [...P[0].gigs, ...P[1].gigs].find((x) => x.id === sel.id)
+						return d ? (
+							<div className="die-info">
+								<PolyDie sides={d.sides} value={d.value} tone={d.id.startsWith(`${me}-`) ? 'cyan' : 'pink'} size={72} />
+								<span>
+									d{d.sides} showing <b>{d.value}</b>
+								</span>
+							</div>
+						) : null
+					})()}
 				{inspectHidden && <div className="inspect-text">A face-down Legend. Nobody — not even you — sees it until it’s flipped with Call a Legend (it’s picked at random). You can still spend it as 1 €$.</div>}
 				{inspect !== null && !inspectHidden && def(s, inspect).text && def(s, inspect).image && <div className="inspect-text">{def(s, inspect).text}</div>}
 				{(() => {
@@ -538,8 +603,10 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 						</button>
 					))}
 				</div>
-				{sideTools && (
-					<div className="tools small">
+					</div>
+				) : null}
+{sideTools && (
+					<div className="tools small table-tools">
 						<div className="zl">Table tools</div>
 						<button className="tool" onClick={() => manual({ op: 'draw' })}>
 							Draw a card
@@ -549,62 +616,6 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 						</button>
 					</div>
 				)}
-			</aside>
-
-			<main className="table">
-				{side(rv, true)}
-				<div className="prompt">
-					<div className="prompt-text">{prompt}</div>
-					<div className="prompt-buttons">
-						{buttons.map((b) => (
-							<button key={b.label} className={`${b.primary ? 'primary' : ''} ${hinted(b.label) ? 'hint' : ''}`} onClick={b.onClick}>
-								{b.label}
-							</button>
-						))}
-					</div>
-					{error && (
-						<div className="error" onClick={() => setError(null)}>
-							{error}
-						</div>
-					)}
-				</div>
-				{side(me, false)}
-				<div className="hand" ref={handRef} style={{ ['--overlap' as string]: `${Math.min(0, (950 - P[me].hand.length * 120) / Math.max(1, P[me].hand.length - 1))}px` }}>
-					{P[me].hand.map((uid) =>
-						handVisible ? (
-							<div key={uid} data-uid={uid} className={`slot hand-card ${hl(hint?.hand, uid)} ${sel?.kind === 'hand' && sel.uid === uid ? 'sel' : ''} ${myTurnToAct && canPlay(s, me, uid) && (pend.kind === 'main' || pend.kind === 'react') ? 'playable' : ''}`} onClick={() => setSel({ kind: 'hand', uid })}>
-								<div className="card">
-									<CardFace d={def(s, uid)} />
-								</div>
-							</div>
-						) : (
-							<div key={uid} className="slot hand-card">
-								<div className="card">
-									<CardBack />
-								</div>
-							</div>
-						),
-					)}
-				</div>
-			</main>
-
-			<aside className="right">
-				<div className="menu-row">
-					<button onClick={onMenu}>Menu</button>
-					{onUndo && <button onClick={onUndo}>Undo</button>}
-					<button onClick={onExport}>Export</button>
-					<button
-						title={soundOn ? 'Mute sound' : 'Turn sound on'}
-						onClick={() => {
-							setMuted(soundOn)
-							setSoundOn(!soundOn)
-							if (!soundOn) window.setTimeout(sfx.turn, 50)
-						}}
-					>
-						{soundOn ? '🔊' : '🔇'}
-					</button>
-				</div>
-				{coach}
 				<div className="status">
 					{s.overtime && <div className="ot">OVERTIME — 7 Gigs wins instantly</div>}
 					<div>

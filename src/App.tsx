@@ -7,8 +7,8 @@ import { Board } from './ui/Board'
 import { Setup, type SetupResult } from './ui/Setup'
 import { coachFor, eventNote, INTRO, type CoachStep } from './ui/coach'
 
-const W = 1600
-const H = 1000
+const W = 1440
+const H = 900
 const SAVE = 'afterlife.save.v1'
 
 interface Session {

@@ -1369,3 +1369,287 @@ button.hint {
 	height: 90px;
 	cursor: pointer;
 }
+
+
+/* ═════ bigger, roomier layout (1440×900 stage, card viewer in the right column) ═════ */
+.board {
+	grid-template-columns: 1186px 254px;
+}
+.right {
+	padding: 10px;
+	gap: 8px;
+}
+.inspector {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 10px;
+	border: 1px solid var(--cyan);
+	border-radius: 8px;
+	background: rgba(8, 20, 26, 0.9);
+	flex: none;
+	max-height: 620px;
+	overflow-y: auto;
+}
+.inspector-close {
+	position: absolute;
+	top: 6px;
+	right: 6px;
+	z-index: 3;
+	padding: 2px 8px;
+	font-size: 14px;
+	clip-path: none;
+}
+.inspector .inspect {
+	width: 100%;
+	height: 318px;
+	border: none;
+}
+.inspector .inspect-text {
+	font-size: 15px;
+	color: #c9cad8;
+	max-height: none;
+}
+.inspector .tools button {
+	font-size: 15px;
+}
+.inspector .tools button.primary {
+	font-size: 19px;
+}
+.table-tools {
+	flex-direction: row;
+	flex-wrap: wrap;
+	margin-top: 0;
+}
+.table-tools .zl {
+	width: 100%;
+}
+.die-info {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	font-size: 18px;
+}
+.die-info b {
+	color: var(--yellow);
+	font-size: 26px;
+}
+.log {
+	font-size: 15px;
+	line-height: 1.35;
+}
+.status {
+	font-size: 15px;
+}
+.table {
+	padding: 6px 8px;
+	gap: 6px;
+}
+.prompt {
+	min-height: 50px;
+	padding: 4px 12px;
+}
+.prompt-text {
+	font-size: 20px;
+}
+.prompt-buttons button {
+	font-size: 19px;
+	padding: 8px 16px;
+}
+
+/* your mat: bigger cards */
+.mat.bottom {
+	height: 378px;
+	grid-template-columns: 64px 1fr 96px;
+	grid-template-rows: 64px 1fr 112px;
+}
+.mat.bottom .slot.unit {
+	width: 116px;
+	height: 162px;
+}
+.mat.bottom .mat-field {
+	padding-top: 22px !important;
+}
+.mat.bottom .slot.legend {
+	width: 70px;
+	height: 98px;
+}
+/* the rival's mat: a little more compact */
+.mat.top {
+	height: 316px;
+	grid-template-columns: 84px 1fr 56px;
+	grid-template-rows: 92px 1fr 58px;
+}
+.mat.top .slot.unit {
+	width: 96px;
+	height: 134px;
+}
+.mat.top .slot.legend {
+	width: 56px;
+	height: 78px;
+}
+.mat.top .eddie-row {
+	height: 66px;
+}
+.mat.top .eddie-row .eddie {
+	width: 44px;
+	height: 62px;
+	margin-right: -24px;
+}
+.mat.top .pile-card {
+	width: 58px;
+	height: 80px;
+}
+.mat.top .mat-fixer .die-slot {
+	width: 36px;
+	height: 36px;
+}
+.mat.top .mat-fixer svg {
+	width: 38px;
+	height: 38px;
+}
+.mat.top .mat-field {
+	padding-top: 22px !important;
+}
+
+/* bigger text everywhere on the mats */
+.zl {
+	font-size: 13px;
+}
+.mat-name {
+	font-size: 17px;
+}
+.banner-t {
+	font-size: 13px;
+}
+.banner-v {
+	font-size: 17px;
+}
+.pw {
+	min-width: 34px;
+	height: 34px;
+	font-size: 21px;
+}
+.pile-n {
+	font-size: 15px;
+	height: 24px;
+}
+.card-face {
+	font-size: 13px;
+}
+.cf-name {
+	font-size: 15px;
+}
+.cf-kw span {
+	font-size: 10px;
+}
+.cf-cost,
+.cf-ram {
+	font-size: 15px;
+}
+.badge {
+	font-size: 12px;
+}
+
+/* hand: bigger cards */
+.slot.hand-card {
+	width: 124px;
+	height: 174px;
+}
+.hand {
+	padding-top: 4px;
+}
+@media (hover: hover) {
+	.slot.hand-card:hover {
+		transform: translateY(-6px) scale(2);
+	}
+}
+
+/* ═════ fit check: rival 300 + prompt 46 + you 360 + hand 164 = 900 ═════ */
+.prompt {
+	min-height: 46px;
+	height: 46px;
+}
+.mat.top {
+	height: 300px;
+	flex: none;
+	grid-template-rows: 84px 1fr 54px;
+}
+.mat.top .slot.unit {
+	width: 84px;
+	height: 118px;
+}
+.mat.top .mat-field {
+	padding-top: 18px !important;
+}
+.mat.top .slot.legend {
+	width: 50px;
+	height: 70px;
+}
+.mat.top .friendly-gigs svg {
+	width: 42px;
+	height: 42px;
+}
+.mat.top .ro-big {
+	font-size: 26px;
+}
+.mat.top .pw {
+	min-width: 28px;
+	height: 28px;
+	font-size: 17px;
+}
+.mat.top .eddie-row {
+	height: 56px;
+}
+.mat.top .eddie-row .eddie {
+	width: 38px;
+	height: 54px;
+	margin-right: -20px;
+}
+.mat.bottom {
+	height: 360px;
+	flex: none;
+	grid-template-rows: 64px 1fr 108px;
+}
+.mat.bottom .slot.unit {
+	width: 104px;
+	height: 146px;
+}
+.mat.bottom .mat-field {
+	padding-top: 18px !important;
+}
+.mat.bottom .slot.legend {
+	width: 64px;
+	height: 88px;
+}
+.mat.bottom .eddie-row {
+	height: 76px;
+}
+.mat.bottom .eddie-row .eddie {
+	width: 52px;
+	height: 72px;
+}
+.hand {
+	height: 164px;
+	flex: none;
+	align-items: flex-start;
+	padding-top: 2px;
+}
+.slot.hand-card {
+	width: 114px;
+	height: 160px;
+}
+/* power badge sits inside the card corner so it's never covered */
+.slot.unit .pw {
+	right: 3px;
+	bottom: 3px;
+}
+.mat-name {
+	left: auto;
+	right: 12px;
+}
+.slot .pw,
+.slot .badge {
+	z-index: 3;
+}
