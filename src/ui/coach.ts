@@ -37,7 +37,7 @@ export const INTRO: { title: string; body: string }[] = [
 	},
 	{
 		title: 'The table',
-		body: 'Your side is at the bottom: Legends, Eddies, Fixer and Gig dice, your field of Units, and your hand. The rival is at the top. Tap any card to see it big on the left — the actions you can take with it appear underneath. The log on the right says everything that happens.',
+		body: 'Your mat is at the bottom, laid out like the official playmat: the Fixer dice down the left, Rival Gigs and Friendly Gigs along the top, your Field of Units in the middle, Legends and Eddies along the bottom, and your Deck and Trash on the right. The rival’s mat faces you at the top. Tap any card to see it big on the left — the actions you can take with it appear underneath. The log on the right says everything that happens.',
 	},
 ]
 
@@ -212,7 +212,7 @@ export function coachFor(s: GameState, me: PlayerId, seen: Set<string>): CoachSt
 			return step(
 				'gigs',
 				'Attack their Gigs',
-				`This is how you win: attack the rival’s Gigs to steal dice. ${nameOf(s, sugg.attacker)} has ${ap} power, so it steals ${n} (1 Gig, plus 1 more for every 10 power). The rival can still block with a ready Blocker. Tap your Unit, press Attack, then press the pink “Attack Gigs”. Attacking spends the Unit, which means the rival can attack it on their turn.`,
+				`This is how you win: attack the rival’s Gigs to steal dice. ${nameOf(s, sugg.attacker)} has ${ap} power, so it steals ${n} (1 Gig, plus 1 more for every 10 power). The rival can still block with a ready Blocker. Tap your Unit, press Attack, then tap the pink RIVAL GIGS box at the top of your mat. Attacking spends the Unit, which means the rival can attack it on their turn.`,
 				`Attack their Gigs with ${def(s, sugg.attacker).name}.`,
 				{ units: [sugg.attacker], buttons: ['Attack'], gigTarget: true },
 				seen,

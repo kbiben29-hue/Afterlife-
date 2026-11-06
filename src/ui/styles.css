@@ -210,7 +210,7 @@ button.tool {
 /* ───── board ───── */
 .board {
 	display: grid;
-	grid-template-columns: 270px 1000px 330px;
+	grid-template-columns: 250px 1060px 290px;
 	height: 100%;
 }
 .left,
@@ -228,8 +228,8 @@ button.tool {
 	border-left: 1px solid var(--line);
 }
 .inspect {
-	width: 242px;
-	height: 339px;
+	width: 222px;
+	height: 311px;
 	display: grid;
 	place-items: center;
 	border: 1px dashed var(--line);
@@ -528,7 +528,7 @@ button.tool {
 .hand {
 	display: flex;
 	gap: 8px;
-	overflow: hidden;
+	overflow: visible;
 	padding-top: 16px;
 	justify-content: center;
 	align-items: flex-end;
@@ -877,4 +877,304 @@ button.hint {
 	to {
 		filter: brightness(1.45);
 	}
+}
+
+
+/* ───── official-mat layout ───── */
+.mat {
+	position: relative;
+	display: grid;
+	grid-template-columns: 62px 1fr 92px;
+	grid-template-rows: 54px 1fr 116px;
+	grid-template-areas:
+		'fixer gigs piles'
+		'fixer field piles'
+		'fixer bottom piles';
+	gap: 6px;
+	height: 362px;
+	padding: 6px;
+	background:
+		linear-gradient(rgba(243, 230, 0, 0.035) 1px, transparent 1px) 0 0 / 100% 22px,
+		linear-gradient(160deg, #0d0e16, #0a0a10);
+	border: 1px solid #3a3510;
+	border-radius: 10px;
+}
+.mat.active {
+	border-color: rgba(243, 230, 0, 0.7);
+	box-shadow: 0 0 22px rgba(243, 230, 0, 0.1) inset;
+}
+/* the rival's mat faces you: rotated 180°, text kept upright */
+.mat.top {
+	grid-template-columns: 92px 1fr 62px;
+	grid-template-rows: 116px 1fr 54px;
+	grid-template-areas:
+		'piles bottom fixer'
+		'piles field fixer'
+		'piles gigs fixer';
+}
+.mat-fixer {
+	grid-area: fixer;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: space-between;
+	padding: 4px 0;
+	border: 1.5px solid #6b6210;
+	border-radius: 8px;
+	background: rgba(243, 230, 0, 0.03);
+}
+.vlabel {
+	font-size: 10px;
+	letter-spacing: 0.25em;
+	color: var(--yellow);
+	opacity: 0.8;
+}
+.die-slot {
+	width: 42px;
+	height: 42px;
+	display: grid;
+	place-items: center;
+	font-size: 11px;
+	color: #4a4520;
+	border: 1.5px dashed #3e3a14;
+	clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
+}
+.mat .die {
+	width: 42px;
+	height: 42px;
+}
+.mat-gigs {
+	grid-area: gigs;
+	display: grid;
+	grid-template-columns: 210px 1fr;
+	gap: 6px;
+}
+.banner {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 0 12px;
+	border: 1.5px solid #6b6210;
+	border-radius: 8px;
+	background: rgba(243, 230, 0, 0.04);
+	clip-path: none;
+	min-width: 0;
+}
+.banner-t {
+	font-size: 12px;
+	letter-spacing: 0.18em;
+	color: var(--yellow);
+	white-space: nowrap;
+}
+.banner-v {
+	font-size: 15px;
+	color: var(--text);
+	white-space: nowrap;
+}
+.rival-gigs {
+	flex-direction: column;
+	justify-content: center;
+	align-items: flex-start;
+	gap: 2px;
+	cursor: default;
+	text-align: left;
+}
+.rival-gigs:disabled {
+	color: inherit;
+	opacity: 1;
+}
+.rival-gigs.aim {
+	cursor: pointer;
+	background: var(--pink);
+	border-color: var(--pink);
+	animation: pulse 0.8s infinite alternate;
+}
+.rival-gigs.aim .banner-t,
+.rival-gigs.aim .banner-v {
+	color: #000;
+	font-weight: 700;
+}
+.friendly-gigs .dice-row {
+	margin-left: auto;
+	min-height: 0;
+}
+.mat-field {
+	grid-area: field;
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 6px 12px;
+	border: 1.5px solid #6b6210;
+	border-radius: 8px;
+	overflow: hidden;
+}
+.mat-field.aim {
+	background: rgba(255, 42, 109, 0.07);
+}
+.mat-field .empty {
+	position: absolute;
+	inset: 0;
+	display: grid;
+	place-items: center;
+	color: #262414;
+	font-size: 44px;
+	letter-spacing: 0.4em;
+	pointer-events: none;
+}
+.mat-name {
+	position: absolute;
+	top: 4px;
+	left: 10px;
+	font-size: 15px;
+	font-weight: 700;
+	letter-spacing: 0.05em;
+	z-index: 1;
+	pointer-events: none;
+}
+.mat-field {
+	padding-top: 24px !important;
+}
+.mat-bottom {
+	grid-area: bottom;
+	display: flex;
+	gap: 8px;
+}
+.mat-bottom .zone {
+	border: 1.5px solid #6b6210;
+	border-radius: 8px;
+	padding: 4px 8px;
+}
+.mat-bottom .legends .cards {
+	gap: 8px;
+}
+.mat-bottom .eddies {
+	flex: 1;
+	width: auto;
+	min-width: 0;
+}
+.mat-bottom .eddies b {
+	color: var(--yellow);
+	margin-left: 6px;
+	font-size: 14px;
+	letter-spacing: 0;
+}
+.eddie-row {
+	display: flex;
+	align-items: center;
+	height: 84px;
+	padding-left: 4px;
+}
+.eddie-row .eddie {
+	position: relative;
+	flex: none;
+	width: 56px;
+	height: 78px;
+	margin-right: -30px;
+	transition: transform 0.25s;
+}
+.eddie-row .eddie.spent {
+	transform: rotate(90deg) scale(0.9);
+	margin: 0 -8px 0 4px;
+}
+.removed {
+	align-self: flex-end;
+	font-size: 12px;
+	color: var(--dim);
+}
+.mat-piles {
+	grid-area: piles;
+	display: flex;
+	flex-direction: column;
+	justify-content: space-between;
+	gap: 6px;
+}
+.mat.top .mat-piles {
+	flex-direction: column-reverse;
+}
+.pile {
+	border: 1.5px solid #6b6210;
+	border-radius: 8px;
+	padding: 4px 6px 6px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 2px;
+	flex: 1;
+}
+.pile .zl {
+	text-align: center;
+}
+.pile-card {
+	position: relative;
+	width: 72px;
+	height: 100px;
+}
+.pile-card > .card-back,
+.pile-card > .card-face,
+.pile-card > .card-img,
+.pile-empty {
+	position: relative;
+	z-index: 1;
+	width: 100%;
+	height: 100%;
+}
+.pile-empty {
+	border: 1.5px dashed #3e3a14;
+	border-radius: 6px;
+}
+.pile-shadow {
+	position: absolute;
+	inset: 3px -3px -3px 3px;
+	border-radius: 6px;
+	background: #1a0f26;
+	border: 1px solid #2a2c3e;
+}
+.pile-n {
+	position: absolute;
+	z-index: 2;
+	right: -6px;
+	bottom: -6px;
+	min-width: 26px;
+	height: 22px;
+	padding: 0 5px;
+	border-radius: 11px;
+	background: #000;
+	border: 1.5px solid var(--cyan);
+	color: var(--cyan);
+	font-size: 13px;
+	font-weight: 700;
+	display: grid;
+	place-items: center;
+}
+.pile.trash {
+	cursor: pointer;
+}
+.pile.trash.sel {
+	border-color: var(--cyan);
+}
+
+/* ───── hand: lift and enlarge on hover ───── */
+.hand {
+	position: relative;
+	z-index: 5;
+	perspective: 900px;
+}
+.slot.hand-card {
+	transform-origin: 50% 100%;
+	transition:
+		transform 0.18s ease,
+		margin 0.18s ease;
+}
+@media (hover: hover) {
+	.slot.hand-card:hover {
+		transform: translateY(-8px) scale(2.15);
+		z-index: 20;
+	}
+	.slot.hand-card:hover .card {
+		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.85);
+	}
+}
+.slot.hand-card.sel {
+	z-index: 10;
 }

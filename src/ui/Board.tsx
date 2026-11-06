@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { actor, attackers, available, canPlay, def, gigsToSteal, legalGigDice, nameOf, streetCred, unitPower } from '../engine/engine'
-import { other, type Die, type FieldUnit, type GameState, type Intent, type LegendSlot, type PlayerId } from '../engine/types'
+import { other as other_, type Die, type FieldUnit, type GameState, type Intent, type LegendSlot, type PlayerId } from '../engine/types'
 import { CardBack, CardFace } from './Card'
 import type { Hint } from './coach'
 
@@ -9,6 +9,7 @@ type Sel =
 	| { kind: 'field'; uid: number }
 	| { kind: 'legend'; uid: number }
 	| { kind: 'die'; id: string }
+	| { kind: 'trash'; owner: PlayerId }
 	| null
 type Mode = { kind: 'gear'; uid: number } | { kind: 'attack'; attacker: number } | null
 
@@ -47,13 +48,19 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		return u[0] === uid && !(hint?.hand?.length) ? 'hint' : ''
 	}
 	const logRef = useRef<HTMLDivElement>(null)
+	const deckRef = useRef<HTMLDivElement>(null)
+	const rivalDeckRef = useRef<HTMLDivElement>(null)
+	const handRef = useRef<HTMLDivElement>(null)
+	const prevHand = useRef<{ viewer: PlayerId; uids: number[] } | null>(null)
 	const me = viewer
-	const rv = other(me)
+	const rv = other_(me)
 	const P = s.players
 	const pend = s.pending
 	const who = actor(s)
 	const myTurnToAct = who === me
-	const inspect = sel && sel.kind !== 'die' ? sel.uid : null
+	const inspect = !sel || sel.kind === 'die' ? null : sel.kind === 'trash' ? (P[sel.owner].trash[P[sel.owner].trash.length - 1] ?? null) : sel.uid
+	// a face-down Legend stays secret until it is flipped — even to its owner
+	const inspectHidden = sel?.kind === 'legend' && !(P[0].legends.find((l) => l.uid === sel.uid) ?? P[1].legends.find((l) => l.uid === sel.uid))?.faceUp
 
 	useEffect(() => {
 		logRef.current?.scrollTo(0, logRef.current.scrollHeight)
@@ -62,6 +69,35 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		setSel(null)
 		setMode(null)
 	}, [pend.kind, viewer])
+
+	// Cards arriving in your hand fly in from your deck.
+	const handUids = P[me].hand
+	const handVisibleNow = !hideHand && pend.kind !== 'chooseFirst'
+	useLayoutEffect(() => {
+		const prev = prevHand.current
+		prevHand.current = { viewer: me, uids: [...handUids] }
+		if (!prev || prev.viewer !== me || !handVisibleNow) return
+		const fresh = handUids.filter((u) => !prev.uids.includes(u))
+		if (fresh.length === 0 || fresh.length > 8) return
+		const deck = deckRef.current?.querySelector('.pile-card')?.getBoundingClientRect()
+		if (!deck) return
+		fresh.forEach((uid, i) => {
+			const el = handRef.current?.querySelector<HTMLElement>(`[data-uid="${uid}"]`)
+			if (!el || !el.animate) return
+			const r = el.getBoundingClientRect()
+			const scale = r.width / (el.offsetWidth || r.width) || 1 // the whole table is scaled to fit the screen
+			const dx = (deck.left + deck.width / 2 - (r.left + r.width / 2)) / scale
+			const dy = (deck.top + deck.height / 2 - (r.top + r.height / 2)) / scale
+			el.animate(
+				[
+					{ transform: `translate(${dx}px, ${dy}px) scale(0.6) rotateY(180deg)`, opacity: 0.4 },
+					{ transform: `translate(${dx * 0.4}px, ${dy * 0.4 - 60}px) scale(0.95) rotateY(90deg)`, opacity: 1, offset: 0.55 },
+					{ transform: 'none', opacity: 1 },
+				],
+				{ duration: 520, delay: i * 110, easing: 'cubic-bezier(.2,.75,.25,1)', fill: 'backwards' },
+			)
+		})
+	}, [handUids, me, handVisibleNow])
 
 	const act = (i: Intent) => {
 		const err = send(i)
@@ -122,52 +158,54 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 			</div>
 		)
 	}
+	// One player's mat, laid out like the official playmat: Fixer strip on the left (d20 → d4),
+	// Rival Gigs / Friendly Gigs banners on top, the Field in the middle, Legends + Eddies along the
+	// bottom, Deck and Trash stacked on the right. The rival's mat is the same, turned to face you.
+	const DIE_ORDER = [20, 12, 10, 8, 6, 4]
 	const side = (p: PlayerId, top: boolean) => {
 		const pl = P[p]
 		const readyEd = pl.eddies.filter((e) => !e.spent).length
 		const cred = streetCred(pl)
 		const fixerHot = pend.kind === 'chooseGig' && p === me && myTurnToAct ? new Set(legalGigDice(pl).map((d) => d.id)) : new Set<string>()
 		const stealHot = pend.kind === 'steal' && p === rv && myTurnToAct
+		const other = P[other_(p)]
+		const aiming = mode?.kind === 'attack' && p === me
+		const attacker = aiming ? P[me].field.find((u) => u.uid === mode!.attacker) : undefined
+		const fixerSlots = DIE_ORDER.map((n) => pl.fixer.find((d) => d.sides === n) ?? null)
+		const topTrash = pl.trash[pl.trash.length - 1]
 		return (
-			<div className={`side ${top ? 'top' : 'bottom'} ${s.active === p ? 'active' : ''}`}>
-				<div className="row meta">
-					<div className="pname">
-						{pl.name}
-						{s.active === p && <span className="turn-dot">● turn {pl.turnsTaken + 1}</span>}
-					</div>
-					<div className="counts">
-						<span title="Cards in hand">✋ {pl.hand.length}</span>
-						<span title="Deck">▤ {pl.deck.length}</span>
-						<span title="Trash">🗑 {pl.trash.length}</span>
-						<span title="Eddies you can still spend">€$ {available(s, p)}</span>
-					</div>
+			<div className={`mat ${top ? 'top' : 'bottom'} ${s.active === p ? 'active' : ''}`}>
+				<div className="mat-fixer">
+					<div className="vlabel">FIXER</div>
+					{(top ? [...fixerSlots].reverse() : fixerSlots).map((d, i) =>
+						d ? (
+							<DieView key={d.id} d={{ ...d, value: d.sides }} hot={fixerHot.has(d.id)} hinted={!!hint?.dice?.includes(d.id)} onClick={() => clickDie(d, p, 'fixer')} />
+						) : (
+							<div key={i} className="die-slot">d{(top ? [...DIE_ORDER].reverse() : DIE_ORDER)[i]}</div>
+						),
+					)}
 				</div>
-				<div className="row zones">
-					<div className="zone legends">
-						<div className="zl">Legends</div>
-						<div className="cards">{pl.legends.map((l) => legendView(l, p))}</div>
-					</div>
-					<div className="zone eddies">
-						<div className="zl">Eddies</div>
-						<div className="eddie-stack">
-							{pl.eddies.map((e, i) => (
-								<div key={e.uid} className={`eddie ${e.spent ? 'spent' : ''}`} style={{ left: i * 14 }} />
-							))}
-							<div className="eddie-n">
-								{readyEd}/{pl.eddies.length}
-							</div>
-						</div>
-					</div>
-					<div className="zone dice">
-						<div className="zl">Fixer</div>
-						<div className="dice-row">
-							{pl.fixer.map((d) => (
-								<DieView key={d.id} d={{ ...d, value: d.sides }} hot={fixerHot.has(d.id)} hinted={!!hint?.dice?.includes(d.id)} onClick={() => clickDie(d, p, 'fixer')} />
-							))}
-						</div>
-						<div className="zl">
-							Gigs {pl.gigs.length}/7 · Street Cred {cred ?? '—'}
-						</div>
+
+				<div className="mat-gigs">
+					<button
+						className={`banner rival-gigs ${aiming ? 'aim' : ''} ${aiming && hint?.gigTarget ? 'hint' : ''}`}
+						disabled={!aiming}
+						onClick={() => aiming && act({ t: 'attack', player: me, attacker: mode!.attacker, target: { kind: 'gigs' } })}
+					>
+						<span className="banner-t">RIVAL GIGS</span>
+						{aiming && attacker ? (
+							<span className="banner-v">Attack! steals {Math.min(gigsToSteal(unitPower(s, attacker)), other.gigs.length)}</span>
+						) : (
+							<span className="banner-v">
+								{other.gigs.length} · ☆ {streetCred(other) ?? '—'}
+							</span>
+						)}
+					</button>
+					<div className="banner friendly-gigs">
+						<span className="banner-t">FRIENDLY GIGS</span>
+						<span className="banner-v">
+							{pl.gigs.length}/7 · ☆ {cred ?? '—'}
+						</span>
 						<div className="dice-row">
 							{pl.gigs.map((d) => (
 								<DieView key={d.id} d={d} hot={stealHot} hinted={!!hint?.dice?.includes(d.id)} selected={sel?.kind === 'die' && sel.id === d.id} onClick={() => clickDie(d, p, 'gigs')} />
@@ -175,15 +213,57 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 						</div>
 					</div>
 				</div>
-				<div className={`row field ${mode?.kind === 'attack' && p === rv ? 'aim' : ''}`}>
-					{pl.field.length === 0 && <div className="empty">Field</div>}
+
+				<div className={`mat-field ${mode?.kind === 'attack' && p === rv ? 'aim' : ''}`}>
+					<div className="mat-name">
+						{pl.name}
+						{s.active === p && <span className="turn-dot"> ● turn {pl.turnsTaken + 1}</span>}
+						{p !== me && <span className="hand-n"> · ✋ {pl.hand.length}</span>}
+					</div>
+					{pl.field.length === 0 && <div className="empty">FIELD</div>}
 					{pl.field.map((u) => unitView(u, p))}
-					{mode?.kind === 'attack' && p === rv && (
-						<button className={`gig-target ${hint?.gigTarget ? 'hint' : ''}`} onClick={() => act({ t: 'attack', player: me, attacker: mode.attacker, target: { kind: 'gigs' } })}>
-							Attack Gigs
-							<small>steals {gigsToSteal(unitPower(s, P[me].field.find((u) => u.uid === mode.attacker)!))}</small>
-						</button>
-					)}
+				</div>
+
+				<div className="mat-bottom">
+					<div className="zone legends">
+						<div className="zl">Legends</div>
+						<div className="cards">{pl.legends.map((l) => legendView(l, p))}</div>
+					</div>
+					<div className="zone eddies">
+						<div className="zl">
+							Eddies <b>{available(s, p)} €$</b>
+							{pl.eddies.length > 0 && (
+								<span className="dim">
+									{' '}
+									({readyEd} of {pl.eddies.length} sold cards ready)
+								</span>
+							)}
+						</div>
+						<div className="eddie-row">
+							{pl.eddies.map((e) => (
+								<div key={e.uid} className={`eddie ${e.spent ? 'spent' : ''}`} />
+							))}
+						</div>
+					</div>
+					{pl.removed.length > 0 && <div className="removed">Removed: {pl.removed.length}</div>}
+				</div>
+
+				<div className="mat-piles">
+					<div className="pile deck" ref={p === me ? deckRef : rivalDeckRef} title="Deck">
+						<div className="zl">Deck</div>
+						<div className="pile-card">
+							{pl.deck.length > 0 ? <CardBack /> : <div className="pile-empty" />}
+							{pl.deck.length > 1 && <div className="pile-shadow" />}
+							<div className="pile-n">{pl.deck.length}</div>
+						</div>
+					</div>
+					<div className={`pile trash ${sel?.kind === 'trash' && sel.owner === p ? 'sel' : ''}`} onClick={() => topTrash !== undefined && setSel({ kind: 'trash', owner: p })} title="Trash">
+						<div className="zl">Trash</div>
+						<div className="pile-card">
+							{topTrash !== undefined ? <CardFace d={def(s, topTrash)} /> : <div className="pile-empty" />}
+							<div className="pile-n">{pl.trash.length}</div>
+						</div>
+					</div>
 				</div>
 			</div>
 		)
@@ -275,8 +355,17 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 	return (
 		<div className="board">
 			<aside className="left">
-				<div className="inspect">{inspect !== null ? <CardFace d={def(s, inspect)} big /> : <div className="inspect-hint">Tap a card to look at it</div>}</div>
-				{inspect !== null && def(s, inspect).text && def(s, inspect).image && <div className="inspect-text">{def(s, inspect).text}</div>}
+				<div className="inspect">
+					{inspect === null ? (
+						<div className="inspect-hint">Tap a card to look at it</div>
+					) : inspectHidden ? (
+						<CardBack label="LEGEND" />
+					) : (
+						<CardFace d={def(s, inspect)} big />
+					)}
+				</div>
+				{inspectHidden && <div className="inspect-text">A face-down Legend. Nobody — not even you — sees it until it’s flipped with Call a Legend (it’s picked at random). You can still spend it as 1 €$.</div>}
+				{inspect !== null && !inspectHidden && def(s, inspect).text && def(s, inspect).image && <div className="inspect-text">{def(s, inspect).text}</div>}
 				<div className="tools">
 					{tools.map((t) => (
 						<button key={t.label} className={`${t.cls ?? ''} ${hinted(t.label) ? 'hint' : ''}`} onClick={t.onClick}>
@@ -315,10 +404,10 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 					)}
 				</div>
 				{side(me, false)}
-				<div className="hand" style={{ ['--overlap' as string]: `${Math.min(0, (950 - P[me].hand.length * 120) / Math.max(1, P[me].hand.length - 1))}px` }}>
+				<div className="hand" ref={handRef} style={{ ['--overlap' as string]: `${Math.min(0, (950 - P[me].hand.length * 120) / Math.max(1, P[me].hand.length - 1))}px` }}>
 					{P[me].hand.map((uid) =>
 						handVisible ? (
-							<div key={uid} className={`slot hand-card ${hl(hint?.hand, uid)} ${sel?.kind === 'hand' && sel.uid === uid ? 'sel' : ''} ${myTurnToAct && canPlay(s, me, uid) && (pend.kind === 'main' || pend.kind === 'react') ? 'playable' : ''}`} onClick={() => setSel({ kind: 'hand', uid })}>
+							<div key={uid} data-uid={uid} className={`slot hand-card ${hl(hint?.hand, uid)} ${sel?.kind === 'hand' && sel.uid === uid ? 'sel' : ''} ${myTurnToAct && canPlay(s, me, uid) && (pend.kind === 'main' || pend.kind === 'react') ? 'playable' : ''}`} onClick={() => setSel({ kind: 'hand', uid })}>
 								<div className="card">
 									<CardFace d={def(s, uid)} />
 								</div>
