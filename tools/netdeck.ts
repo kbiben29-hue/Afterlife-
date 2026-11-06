@@ -25,10 +25,10 @@ async function getJson(url: string): Promise<unknown | null> {
 
 /** Pull an array of card-like objects out of whatever shape the response has. */
 export function cardArray(body: unknown): Json[] {
-	const looksLikeCard = (o: unknown) => !!o && typeof o === 'object' && 'name' in (o as Json) && ('slug' in (o as Json) || 'type' in (o as Json) || 'cost' in (o as Json))
+	const looksLikeCard = (o: unknown) => !!o && typeof o === 'object' && 'name' in (o as Json) && ['slug', 'type', 'card_type', 'cost'].some((k) => k in (o as Json))
 	if (Array.isArray(body)) return body.filter(looksLikeCard) as Json[]
 	if (body && typeof body === 'object') {
-		for (const k of ['data', 'cards', 'results', 'items', 'docs', 'rows']) {
+		for (const k of ['items', 'data', 'cards', 'results', 'docs', 'rows']) {
 			const v = (body as Json)[k]
 			if (Array.isArray(v) && v.some(looksLikeCard)) return v.filter(looksLikeCard) as Json[]
 			if (v && typeof v === 'object') {
@@ -40,11 +40,11 @@ export function cardArray(body: unknown): Json[] {
 	return []
 }
 
-function nextPage(body: unknown): { total?: number; pages?: number } {
+function pageInfo(body: unknown): { total?: number; limit?: number } {
 	const b = (body && typeof body === 'object' ? body : {}) as Json
 	const meta = { ...b, ...((b.meta as Json) ?? {}), ...((b.pagination as Json) ?? {}) }
 	const num = (v: unknown) => (typeof v === 'number' ? v : typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : undefined)
-	return { total: num(meta.total ?? meta.count ?? meta.total_count), pages: num(meta.pages ?? meta.total_pages ?? meta.last_page ?? meta.pageCount) }
+	return { total: num(meta.total ?? meta.count ?? meta.total_count), limit: num(meta.limit ?? meta.per_page ?? meta.page_size) }
 }
 
 /** Candidate endpoints, plus any api.netdeck.gg card paths found in the site's scripts. */
@@ -82,14 +82,18 @@ export async function fetchCardList(log: (s: string) => void): Promise<{ endpoin
 		if (first.length === 0) continue
 		log(`  ${url} → ${first.length} cards`)
 		const raw = [...first]
-		const { total, pages } = nextPage(body)
+		const { total, limit } = pageInfo(body)
 		const sep = url.includes('?') ? '&' : '?'
-		for (let page = 2; page <= (pages ?? 50) && (total === undefined || raw.length < total); page++) {
-			const more = cardArray(await getJson(`${url}${sep}page=${page}`))
-			const fresh = more.filter((c) => !raw.some((r) => (r.id ?? r.slug) === (c.id ?? c.slug)))
+		const key = (c: Json) => String(c.id ?? c.slug ?? c.name)
+		// Netdeck pages with offset/limit ({ items, total, limit, offset }); fall back to page=N.
+		for (let i = 2; i <= 60 && (total === undefined || raw.length < total); i++) {
+			const next = limit ? `${url}${sep}offset=${raw.length}&limit=${limit}` : `${url}${sep}page=${i}`
+			const fresh = cardArray(await getJson(next)).filter((c) => !raw.some((r) => key(r) === key(c)))
 			if (fresh.length === 0) break
 			raw.push(...fresh)
+			log(`  … ${raw.length}${total ? `/${total}` : ''}`)
 		}
+		if (total && raw.length < total) log(`  warning: only got ${raw.length} of ${total} cards`)
 		return { endpoint: url, raw }
 	}
 	return null
@@ -133,16 +137,18 @@ export function mapCard(c: Json): CardDef {
 	const type = (['legend', 'unit', 'gear', 'program'] as const).find((t) => typeStr.includes(t)) ?? 'unit'
 	const colorStr = str(field(c, 'color', 'colour', 'colors', 'faction_color')).toLowerCase()
 	const color = (['red', 'green', 'blue', 'yellow'] as Color[]).find((x) => colorStr.includes(x)) ?? null
-	const text = str(field(c, 'text', 'rules_text', 'rulesText', 'ability', 'abilities', 'effect', 'description'))
-	const kwRaw = `${text} ${str(field(c, 'keywords', 'keyword'))}`
+	const text = str(field(c, 'rules_text', 'official_rules_text_en', 'text', 'rulesText', 'ability', 'abilities', 'effect', 'description'))
+	// A keyword the card itself has is printed at the start of a line, e.g. "{Go Solo} (reminder…)".
+	// Words later in a sentence ("give a Unit {Blocker}") grant it to something else, so they don't count.
+	const own = [...text.matchAll(/^\s*\{([^}]+)\}/gm)].map((m) => m[1]).join(' ') + ' ' + str(field(c, 'keywords', 'keyword'))
 	const keywords: Keyword[] = []
-	if (/\bquick\b/i.test(kwRaw)) keywords.push('quick')
-	if (/\bblocker\b/i.test(kwRaw)) keywords.push('blocker')
-	if (/\badrenaline\b/i.test(kwRaw)) keywords.push('adrenaline')
-	if (/\bgo[\s_-]*solo\b/i.test(kwRaw)) keywords.push('goSolo')
-	const sellRaw = field(c, 'sell', 'sell_tag', 'sellTag', 'has_sell_tag', 'sellable', 'can_sell')
+	if (/\bquick\b/i.test(own)) keywords.push('quick')
+	if (/\bblocker\b/i.test(own)) keywords.push('blocker')
+	if (/\badrenaline\b/i.test(own)) keywords.push('adrenaline')
+	if (/\bgo[\s_-]*solo\b/i.test(own)) keywords.push('goSolo')
+	const sellRaw = field(c, 'is_eddiable', 'sell', 'sell_tag', 'sellTag', 'has_sell_tag', 'sellable', 'can_sell')
 	const cost = num(field(c, 'cost', 'eddies', 'eddie_cost', 'cost_value'))
-	const tagsRaw = field(c, 'tags', 'subtypes', 'traits')
+	const tagsRaw = field(c, 'classifications', 'tags', 'subtypes', 'traits')
 	return {
 		id: str(field(c, 'slug')) || slugify(fullName),
 		name: n.trim(),

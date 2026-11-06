@@ -35,3 +35,36 @@ test('follows pagination on the first endpoint that answers', async () => {
 		globalThis.fetch = real
 	}
 })
+
+test('maps a real Netdeck card (V — Streetkid, Nov 2026 shape)', () => {
+	const v = mapCard({
+		id: '81a8dec7', name: 'V', subname: 'Streetkid', slug: 'v-streetkid',
+		rules_text: '{Call} Trash 3. Then, add 1 BRAINDANCE Program from your trash to your hand.\n{Go Solo} (Pay this Legend\'s cost to play it as a ready Unit.)',
+		set: { code: 'welcometonightcityretail', name: 'Welcome to Night City — Retail' },
+		color: 'Red', card_type: 'Legend', is_eddiable: true, classifications: ['Merc'], keywords: [], cost: 5, power: 6, ram: 2,
+	})
+	assert.deepEqual(
+		[v.id, v.name, v.subtitle, v.type, v.color, v.cost, v.power, v.ram, v.sell, v.keywords, v.tags],
+		['v-streetkid', 'V', 'Streetkid', 'legend', 'red', 5, 6, 2, true, ['goSolo'], ['Merc']],
+	)
+	const g = mapCard({ name: 'Shield', slug: 'shield', card_type: 'Gear', color: 'Green', cost: 2, ram: 1, rules_text: 'The equipped Unit gains {Blocker}.' })
+	assert.deepEqual(g.keywords, [])
+})
+
+test('pages through offset/limit responses', async () => {
+	const real = globalThis.fetch
+	const all = Array.from({ length: 152 }, (_, i) => ({ id: `c${i}`, name: `Card ${i}`, card_type: 'Unit' }))
+	globalThis.fetch = (async (u: string) => {
+		const url = new URL(String(u))
+		if (url.pathname !== '/api/cyberpunk/cards') return new Response('', { status: 404 })
+		const offset = Number(url.searchParams.get('offset') ?? 0)
+		const limit = Number(url.searchParams.get('limit') ?? 60)
+		return new Response(JSON.stringify({ items: all.slice(offset, offset + limit), total: 152, limit, offset }), { headers: { 'content-type': 'application/json' } })
+	}) as typeof fetch
+	try {
+		const r = await fetchCardList(() => {})
+		assert.equal(r?.raw.length, 152)
+	} finally {
+		globalThis.fetch = real
+	}
+})
