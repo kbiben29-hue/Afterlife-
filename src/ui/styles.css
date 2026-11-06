@@ -885,7 +885,7 @@ button.hint {
 	position: relative;
 	display: grid;
 	grid-template-columns: 62px 1fr 92px;
-	grid-template-rows: 54px 1fr 116px;
+	grid-template-rows: 66px 1fr 116px;
 	grid-template-areas:
 		'fixer gigs piles'
 		'fixer field piles'
@@ -906,7 +906,7 @@ button.hint {
 /* the rival's mat faces you: rotated 180°, text kept upright */
 .mat.top {
 	grid-template-columns: 92px 1fr 62px;
-	grid-template-rows: 116px 1fr 54px;
+	grid-template-rows: 116px 1fr 66px;
 	grid-template-areas:
 		'piles bottom fixer'
 		'piles field fixer'
@@ -1177,4 +1177,136 @@ button.hint {
 }
 .slot.hand-card.sel {
 	z-index: 10;
+}
+
+
+/* ───── polyhedral dice ───── */
+.die-btn {
+	padding: 0;
+	border: none;
+	background: none;
+	clip-path: none;
+	line-height: 0;
+	cursor: pointer;
+	filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.6));
+	transition: transform 0.15s;
+}
+.die-btn:hover {
+	transform: translateY(-2px);
+}
+.die-btn.hot,
+.die-btn.hint {
+	animation: die-pulse 0.8s ease-in-out infinite alternate;
+	filter: drop-shadow(0 0 10px var(--yellow));
+}
+.die-btn.sel {
+	filter: drop-shadow(0 0 10px var(--cyan));
+}
+@keyframes die-pulse {
+	to {
+		transform: scale(1.12);
+	}
+}
+.poly-die.rolling {
+	animation: die-roll 0.7s cubic-bezier(0.25, 0.8, 0.35, 1);
+}
+@keyframes die-roll {
+	0% {
+		transform: translateY(-26px) rotate(-260deg) scale(0.7);
+	}
+	45% {
+		transform: translateY(4px) rotate(40deg) scale(1.15);
+	}
+	70% {
+		transform: translateY(-6px) rotate(-12deg) scale(0.98);
+	}
+	100% {
+		transform: none;
+	}
+}
+.mat-fixer {
+	padding: 2px 0;
+}
+.mat-fixer .die-slot {
+	width: 40px;
+	height: 40px;
+	font-size: 10px;
+}
+.friendly-gigs {
+	gap: 12px;
+	padding: 0 8px 0 12px;
+}
+.gig-readout {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding-right: 12px;
+	border-right: 1px solid #3e3a14;
+	flex: none;
+}
+.readout {
+	display: flex;
+	align-items: baseline;
+	gap: 12px;
+	font-variant-numeric: tabular-nums;
+}
+.ro-big {
+	font-size: 30px;
+	font-weight: 800;
+	color: var(--yellow);
+	line-height: 1;
+	text-shadow: 0 0 10px rgba(243, 230, 0, 0.45);
+}
+.ro-big small {
+	font-size: 15px;
+	color: #8a8340;
+	font-weight: 600;
+}
+.ro-cred {
+	font-size: 18px;
+	font-weight: 700;
+	color: var(--cyan);
+	line-height: 1;
+}
+.ro-cred small {
+	font-size: 9px;
+	letter-spacing: 0.15em;
+	color: var(--dim);
+	margin-left: 4px;
+}
+.friendly-gigs .dice-row {
+	gap: 4px;
+	align-items: center;
+}
+.flash-gain {
+	animation: flash-gain 1s ease-out;
+}
+.flash-lose {
+	animation: flash-lose 1s ease-out;
+}
+@keyframes flash-gain {
+	0%,
+	30% {
+		background: rgba(25, 227, 240, 0.35);
+		border-color: var(--cyan);
+	}
+}
+@keyframes flash-lose {
+	0%,
+	15%,
+	45% {
+		background: rgba(255, 42, 109, 0.4);
+		border-color: var(--pink);
+		transform: translateX(-4px);
+	}
+	30%,
+	60% {
+		transform: translateX(4px);
+	}
+	100% {
+		transform: none;
+	}
+}
+.menu-row button {
+	padding: 8px 6px;
 }

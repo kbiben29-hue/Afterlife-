@@ -3,6 +3,8 @@ import { actor, attackers, available, canPlay, def, gigsToSteal, legalGigDice, n
 import { other as other_, type Die, type FieldUnit, type GameState, type Intent, type LegendSlot, type PlayerId } from '../engine/types'
 import { CardBack, CardFace } from './Card'
 import type { Hint } from './coach'
+import { PolyDie, type DieTone } from './Die'
+import { isMuted, setMuted, sfx, soundFor, unlockAudio } from './sfx'
 
 type Sel =
 	| { kind: 'hand'; uid: number }
@@ -26,11 +28,30 @@ export interface BoardProps {
 	coach?: ReactNode
 }
 
-function DieView({ d, onClick, hot, selected, hinted }: { d: Die; onClick?: () => void; hot?: boolean; selected?: boolean; hinted?: boolean }) {
+function DieView({
+	d,
+	tone,
+	size,
+	fixer,
+	rolling,
+	onClick,
+	hot,
+	selected,
+	hinted,
+}: {
+	d: Die
+	tone: DieTone
+	size: number
+	fixer?: boolean
+	rolling?: boolean
+	onClick?: () => void
+	hot?: boolean
+	selected?: boolean
+	hinted?: boolean
+}) {
 	return (
-		<button className={`die d${d.sides} ${hot ? 'hot' : ''} ${selected ? 'sel' : ''} ${hinted ? 'hint' : ''}`} onClick={onClick} title={`d${d.sides}`}>
-			<span className="die-v">{d.value}</span>
-			<span className="die-s">d{d.sides}</span>
+		<button data-die={d.id} className={`die-btn ${hot ? 'hot' : ''} ${selected ? 'sel' : ''} ${hinted ? 'hint' : ''}`} onClick={onClick} title={`d${d.sides}${fixer ? '' : ` — rolled ${d.value}`}`}>
+			<PolyDie sides={d.sides} value={d.value} tone={fixer ? (hot || hinted ? tone : 'ghost') : tone} size={size} rolling={rolling} label={fixer ? `d${d.sides}` : undefined} />
 		</button>
 	)
 }
@@ -52,6 +73,11 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 	const rivalDeckRef = useRef<HTMLDivElement>(null)
 	const handRef = useRef<HTMLDivElement>(null)
 	const prevHand = useRef<{ viewer: PlayerId; uids: number[] } | null>(null)
+	const prevDice = useRef<Map<string, { owner: PlayerId; zone: 'fixer' | 'gigs'; value: number; rect: DOMRect }> | null>(null)
+	const [rolling, setRolling] = useState<Set<string>>(new Set())
+	const [soundOn, setSoundOn] = useState(!isMuted())
+	const [flash, setFlash] = useState<Partial<Record<PlayerId, 'gain' | 'lose'>>>({})
+	const prevLogLen = useRef<number | null>(null)
 	const me = viewer
 	const rv = other_(me)
 	const P = s.players
@@ -70,6 +96,85 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		setMode(null)
 	}, [pend.kind, viewer])
 
+	// Dice: roll when they come out of the Fixer (or are re-rolled); fly across when a Gig is stolen.
+	useLayoutEffect(() => {
+		const now = new Map<string, { owner: PlayerId; zone: 'fixer' | 'gigs'; value: number; rect: DOMRect }>()
+		for (const p of [0, 1] as PlayerId[]) {
+			for (const d of P[p].fixer) now.set(d.id, { owner: p, zone: 'fixer', value: d.value, rect: new DOMRect() })
+			for (const d of P[p].gigs) now.set(d.id, { owner: p, zone: 'gigs', value: d.value, rect: new DOMRect() })
+		}
+		const els = new Map<string, HTMLElement>()
+		document.querySelectorAll<HTMLElement>('[data-die]').forEach((el) => els.set(el.dataset.die!, el))
+		for (const [id, info] of now) {
+			const el = els.get(id)
+			if (el) info.rect = el.getBoundingClientRect()
+		}
+		const prev = prevDice.current
+		prevDice.current = now
+		if (!prev) return
+		const roll = new Set<string>()
+		const gained: PlayerId[] = []
+		const lost: PlayerId[] = []
+		for (const [id, info] of now) {
+			const before = prev.get(id)
+			if (!before) continue
+			const moved = before.owner !== info.owner || before.zone !== info.zone
+			const el = els.get(id)
+			if (moved && el && el.animate && before.rect.width > 0) {
+				const r = info.rect
+				const scale = r.width / (el.offsetWidth || r.width) || 1
+				const dx = (before.rect.left + before.rect.width / 2 - (r.left + r.width / 2)) / scale
+				const dy = (before.rect.top + before.rect.height / 2 - (r.top + r.height / 2)) / scale
+				const stolen = before.zone === 'gigs' && info.zone === 'gigs'
+				el.animate(
+					stolen
+						? [
+								{ transform: `translate(${dx}px, ${dy}px) scale(1)`, filter: 'drop-shadow(0 0 0 #ff2a6d)' },
+								{ transform: `translate(${dx * 0.5}px, ${dy * 0.5}px) scale(1.9) rotate(200deg)`, filter: 'drop-shadow(0 0 18px #ff2a6d)', offset: 0.5 },
+								{ transform: 'none', filter: 'drop-shadow(0 0 0 #ff2a6d)' },
+							]
+						: [
+								{ transform: `translate(${dx}px, ${dy}px) scale(0.8)` },
+								{ transform: `translate(${dx * 0.4}px, ${dy * 0.4 - 40}px) scale(1.3) rotate(320deg)`, offset: 0.6 },
+								{ transform: 'none' },
+							],
+					{ duration: stolen ? 900 : 650, easing: 'cubic-bezier(.3,.7,.3,1)' },
+				)
+				if (stolen) {
+					gained.push(info.owner)
+					lost.push(before.owner)
+				}
+			}
+			if (info.zone === 'gigs' && (before.zone === 'fixer' || (!moved && before.value !== info.value))) roll.add(id)
+		}
+		if (roll.size) {
+			setRolling(roll)
+			window.setTimeout(() => setRolling(new Set()), 750)
+		}
+		if (gained.length) {
+			const f: Partial<Record<PlayerId, 'gain' | 'lose'>> = {}
+			for (const p of gained) f[p] = 'gain'
+			for (const p of lost) f[p] = 'lose'
+			setFlash(f)
+			window.setTimeout(() => setFlash({}), 1000)
+		}
+	}, [s])
+
+	// Sound effects for whatever just happened (from the new log lines).
+	useEffect(() => {
+		const prev = prevLogLen.current
+		prevLogLen.current = s.log.length
+		if (prev === null || s.log.length <= prev) return
+		const played = new Set<() => void>()
+		s.log.slice(prev).forEach((line, i) => {
+			const f = soundFor(line, P[me].name)
+			if (f && !played.has(f)) {
+				played.add(f)
+				window.setTimeout(f, i * 90)
+			}
+		})
+	}, [s.log.length])
+
 	// Cards arriving in your hand fly in from your deck.
 	const handUids = P[me].hand
 	const handVisibleNow = !hideHand && pend.kind !== 'chooseFirst'
@@ -81,6 +186,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		if (fresh.length === 0 || fresh.length > 8) return
 		const deck = deckRef.current?.querySelector('.pile-card')?.getBoundingClientRect()
 		if (!deck) return
+		fresh.slice(0, 3).forEach((_, i) => window.setTimeout(sfx.draw, i * 110))
 		fresh.forEach((uid, i) => {
 			const el = handRef.current?.querySelector<HTMLElement>(`[data-uid="${uid}"]`)
 			if (!el || !el.animate) return
@@ -102,6 +208,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 	const act = (i: Intent) => {
 		const err = send(i)
 		setError(err ?? null)
+		if (err) sfx.error()
 		if (!err) {
 			setSel(null)
 			setMode(null)
@@ -179,7 +286,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 					<div className="vlabel">FIXER</div>
 					{(top ? [...fixerSlots].reverse() : fixerSlots).map((d, i) =>
 						d ? (
-							<DieView key={d.id} d={{ ...d, value: d.sides }} hot={fixerHot.has(d.id)} hinted={!!hint?.dice?.includes(d.id)} onClick={() => clickDie(d, p, 'fixer')} />
+							<DieView key={d.id} d={d} fixer tone={p === me ? 'cyan' : 'pink'} size={44} hot={fixerHot.has(d.id)} hinted={!!hint?.dice?.includes(d.id)} onClick={() => clickDie(d, p, 'fixer')} />
 						) : (
 							<div key={i} className="die-slot">d{(top ? [...DIE_ORDER].reverse() : DIE_ORDER)[i]}</div>
 						),
@@ -201,14 +308,23 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 							</span>
 						)}
 					</button>
-					<div className="banner friendly-gigs">
-						<span className="banner-t">FRIENDLY GIGS</span>
-						<span className="banner-v">
-							{pl.gigs.length}/7 · ☆ {cred ?? '—'}
-						</span>
+					<div className={`banner friendly-gigs ${flash[p] ? `flash-${flash[p]}` : ''}`}>
+						<div className="gig-readout">
+							<span className="banner-t">FRIENDLY GIGS</span>
+							<div className="readout">
+								<span className="ro-big">
+									{pl.gigs.length}
+									<small>/7</small>
+								</span>
+								<span className="ro-cred">
+									☆ {cred ?? '—'}
+									<small>CRED</small>
+								</span>
+							</div>
+						</div>
 						<div className="dice-row">
 							{pl.gigs.map((d) => (
-								<DieView key={d.id} d={d} hot={stealHot} hinted={!!hint?.dice?.includes(d.id)} selected={sel?.kind === 'die' && sel.id === d.id} onClick={() => clickDie(d, p, 'gigs')} />
+								<DieView key={d.id} d={d} tone={d.id.startsWith(`${me}-`) ? 'cyan' : 'pink'} size={54} rolling={rolling.has(d.id)} hot={stealHot} hinted={!!hint?.dice?.includes(d.id)} selected={sel?.kind === 'die' && sel.id === d.id} onClick={() => clickDie(d, p, 'gigs')} />
 							))}
 						</div>
 					</div>
@@ -353,7 +469,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 	const handVisible = !hideHand && pend.kind !== 'chooseFirst'
 
 	return (
-		<div className="board">
+		<div className="board" onPointerDown={unlockAudio}>
 			<aside className="left">
 				<div className="inspect">
 					{inspect === null ? (
@@ -428,6 +544,16 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 					<button onClick={onMenu}>Menu</button>
 					{onUndo && <button onClick={onUndo}>Undo</button>}
 					<button onClick={onExport}>Export</button>
+					<button
+						title={soundOn ? 'Mute sound' : 'Turn sound on'}
+						onClick={() => {
+							setMuted(soundOn)
+							setSoundOn(!soundOn)
+							if (!soundOn) window.setTimeout(sfx.turn, 50)
+						}}
+					>
+						{soundOn ? '🔊' : '🔇'}
+					</button>
 				</div>
 				{coach}
 				<div className="status">
