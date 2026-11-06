@@ -14,6 +14,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { CardDef, Color, Keyword } from '../src/engine/types'
+import { fetchCardList, mapCard } from './netdeck'
 
 const SITE = 'https://cyberpunktcg.com'
 const IMAGE = (slug: string) => `https://api.netdeck.gg/api/cards/cyberpunk/${slug}/image`
@@ -21,6 +22,7 @@ const OUT = 'public/cards'
 const RAW = 'vendor/cards/raw'
 const debug = process.argv.includes('--debug')
 const noImages = process.argv.includes('--no-images')
+const pagesOnly = process.argv.includes('--pages')
 const UA = 'Afterlife-fan-client (personal card cache)'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -170,40 +172,80 @@ function parseCardPage(slug: string, html: string): { card: CardDef; missing: st
 async function main() {
 	await mkdir(join(OUT, 'img'), { recursive: true })
 	if (debug) await mkdir(RAW, { recursive: true })
-	console.log('Reading the card list from cyberpunktcg.com …')
-	const slugs = await listSlugs()
-	if (slugs.length === 0) throw new Error('No cards found — the site layout may have changed (try --debug).')
 	const cards: Record<string, CardDef> = {}
 	const report: string[] = []
-	let n = 0
-	const queue = [...slugs]
-	await Promise.all(
-		Array.from({ length: 4 }, async () => {
-			for (let slug = queue.shift(); slug; slug = queue.shift()) {
-				try {
-					const html = await (await get(`${SITE}/cards/${slug}`)).text()
-					if (debug) await writeFile(join(RAW, `${slug}.html`), html)
-					const { card, missing } = parseCardPage(slug, html)
-					if (!noImages) {
-						const existing = ['webp', 'png', 'jpg'].map((e) => join(OUT, 'img', `${slug}.${e}`)).find(existsSync)
+
+	// 1) The Netdeck.gg API behind the card database / Deck Builder: everything in one go.
+	if (!pagesOnly) {
+		console.log('Looking for the card database API …')
+		const api = await fetchCardList(console.log)
+		if (api) {
+			await mkdir('vendor/cards', { recursive: true })
+			await writeFile('vendor/cards/api-raw.json', JSON.stringify(api, null, '\t'))
+			for (const raw of api.raw) {
+				const c = mapCard(raw)
+				cards[c.id] = c
+				const gaps = [!c.color && c.type !== 'legend' && 'color', c.type === 'unit' && c.power === null && 'power'].filter(Boolean)
+				if (gaps.length) report.push(`${c.id}: ${gaps.join(', ')}`)
+			}
+			console.log(`Got ${Object.keys(cards).length} cards from ${api.endpoint} (raw copy in vendor/cards/api-raw.json)`)
+		} else console.log('  no API endpoint answered — reading the card pages instead')
+	}
+
+	// 2) Fallback: read every public card page.
+	if (Object.keys(cards).length === 0) {
+		console.log('Reading the card list from cyberpunktcg.com …')
+		const slugs = await listSlugs()
+		if (slugs.length === 0) throw new Error('No cards found — the site layout may have changed (try --debug).')
+		let n = 0
+		const queue = [...slugs]
+		await Promise.all(
+			Array.from({ length: 4 }, async () => {
+				for (let slug = queue.shift(); slug; slug = queue.shift()) {
+					try {
+						const html = await (await get(`${SITE}/cards/${slug}`)).text()
+						if (debug) await writeFile(join(RAW, `${slug}.html`), html)
+						const { card, missing } = parseCardPage(slug, html)
+						cards[slug] = card
+						if (missing.length) report.push(`${slug}: ${missing.join(', ')}`)
+					} catch (e) {
+						report.push(`${slug}: FAILED ${(e as Error).message}`)
+					}
+					if (++n % 10 === 0) console.log(`  ${n}/${slugs.length}`)
+					await sleep(150)
+				}
+			}),
+		)
+	}
+
+	// 3) Card renders.
+	if (!noImages) {
+		console.log('Downloading card images …')
+		let n = 0
+		const queue = Object.values(cards)
+		await Promise.all(
+			Array.from({ length: 4 }, async () => {
+				for (let card = queue.shift(); card; card = queue.shift()) {
+					try {
+						const existing = ['webp', 'png', 'jpg'].map((e) => join(OUT, 'img', `${card.id}.${e}`)).find(existsSync)
 						if (existing) card.image = existing.replace(/^public\//, '')
 						else {
-							const res = await get(IMAGE(slug))
-							const ext = /png/.test(res.headers.get('content-type') ?? '') ? 'png' : /jpe?g/.test(res.headers.get('content-type') ?? '') ? 'jpg' : 'webp'
-							await writeFile(join(OUT, 'img', `${slug}.${ext}`), Buffer.from(await res.arrayBuffer()))
-							card.image = `cards/img/${slug}.${ext}`
+							const res = await get(IMAGE(card.id))
+							const type = res.headers.get('content-type') ?? ''
+							const ext = /png/.test(type) ? 'png' : /jpe?g/.test(type) ? 'jpg' : 'webp'
+							await writeFile(join(OUT, 'img', `${card.id}.${ext}`), Buffer.from(await res.arrayBuffer()))
+							card.image = `cards/img/${card.id}.${ext}`
+							await sleep(100)
 						}
+					} catch (e) {
+						report.push(`${card.id}: no image (${(e as Error).message})`)
 					}
-					cards[slug] = card
-					if (missing.length) report.push(`${slug}: ${missing.join(', ')}`)
-				} catch (e) {
-					report.push(`${slug}: FAILED ${(e as Error).message}`)
+					if (++n % 25 === 0) console.log(`  ${n}/${Object.keys(cards).length}`)
 				}
-				if (++n % 10 === 0) console.log(`  ${n}/${slugs.length}`)
-				await sleep(150)
-			}
-		}),
-	)
+			}),
+		)
+	}
+
 	await writeFile(join(OUT, 'cards.json'), JSON.stringify(cards, null, '\t'))
 	await writeFile(join(OUT, 'report.txt'), report.join('\n'))
 	const byType = Object.values(cards).reduce<Record<string, number>>((a, c) => ((a[c.type] = (a[c.type] ?? 0) + 1), a), {})

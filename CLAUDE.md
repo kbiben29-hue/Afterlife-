@@ -12,7 +12,8 @@ npm run dev                 # Vite app on :5173
 npm test                    # tsx --test src/**/*.test.ts (node:test, no vitest)
 npx tsx --test src/engine/engine.test.ts
 npm run sim -- 200          # bot-vs-bot games; prints how games end
-npm run fetch-cards         # official card DB -> public/cards/ (gitignored); --debug keeps raw HTML
+npm run fetch-cards         # Netdeck.gg API (or card pages) -> public/cards/ (gitignored); --pages, --debug
+npm run fetch-deck -- <url> # public Deck Builder deck -> decks/<id>.txt
 npm run build               # vite build (base './')
 npm run typecheck           # tsc -b (needs npm install for the React types)
 ```
@@ -45,6 +46,8 @@ npm run typecheck           # tsc -b (needs npm install for the React types)
 
 1. Script card abilities (Play / Attack / Defeated / Call triggers, Spend activations, static
    effects) — add an effect registry keyed by card id; until then players use the table tools.
-2. Verify `tools/fetch-cards.ts` against the live site (written without access to it) and fix the parser.
+2. Verify `tools/netdeck.ts` / `tools/fetch-cards.ts` against the live API (written without access to it):
+   known endpoints are `api.netdeck.gg/api/cyberpunk/decks/<uuid>` and `api.netdeck.gg/api/cards/cyberpunk/<slug>/image`;
+   the card-list endpoint is discovered at run time. Fix `mapCard()` from `vendor/cards/api-raw.json`.
 3. Deck builder screen; saved decks.
 4. Online play (like Ready Room's async server) and a stronger bot.

@@ -43,12 +43,16 @@ No card scans or card wording are stored in this repository; that material belon
 CD PROJEKT RED. Without the card database, every card is drawn as a placeholder (colour, cost,
 RAM, power and keyword chips), and the game is fully playable with a generic placeholder card pool.
 
-`npm run fetch-cards` copies the card list and card renders from the official card database at
-[cyberpunktcg.com/cards](https://cyberpunktcg.com/cards) onto your own computer
-(`public/cards/`, gitignored). The site has no documented API, so the script reads the public card
-pages; if a field comes out wrong, run `npm run fetch-cards -- --debug` (saves the raw pages to
-`vendor/cards/raw/`) and adjust `parseCardPage()` in `tools/fetch-cards.ts`. Problem cards are
-listed in `public/cards/report.txt`.
+`npm run fetch-cards` copies the card list and card renders from the official card database
+([cyberpunktcg.com/cards](https://cyberpunktcg.com/cards), run on Netdeck.gg) onto your own computer
+(`public/cards/`, gitignored). It first looks for the Netdeck.gg API behind the card database and
+Deck Builder and takes every card in one go (keeping a raw copy in `vendor/cards/api-raw.json`). If no
+API answers, it reads each public card page instead (`--pages` forces that; `--debug` keeps the raw
+pages). That API is undocumented, so if cards come out wrong, send `public/cards/report.txt` and
+`vendor/cards/api-raw.json` to Claude to fix the mapping in `tools/netdeck.ts`.
+
+`npm run fetch-deck -- <Deck Builder link>` downloads a public deck as a card list (saved to `decks/`)
+that you can paste into the setup screen.
 
 With the database loaded you can paste a deck list on the setup screen (one card per line, e.g.
 `3 Ruthless Lowlife`, Legends included) or let it build a random two-colour deck.

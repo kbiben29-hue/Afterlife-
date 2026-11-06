@@ -8,8 +8,9 @@
 		"build": "vite build",
 		"typecheck": "tsc -b",
 		"preview": "vite preview",
-		"test": "tsx --test src/**/*.test.ts",
+		"test": "tsx --test src/**/*.test.ts tools/*.test.ts",
 		"fetch-cards": "tsx tools/fetch-cards.ts",
+		"fetch-deck": "tsx tools/fetch-deck.ts",
 		"sim": "tsx tools/sim.ts"
 	},
 	"dependencies": {
