@@ -62,6 +62,12 @@ Knowing how to play is up to you — read the official
 
 ## Running it
 
+On a Mac, double-click **Start Afterlife.command**. The first time, it installs everything and
+downloads the cards; after that it just starts the game and opens your browser. (If macOS says it
+can't be opened, right-click it and choose **Open**.)
+
+Or from a terminal:
+
 ```bash
 npm install
 npm run dev          # http://localhost:5173
