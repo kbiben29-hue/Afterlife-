@@ -12,6 +12,7 @@ type Sel =
 	| { kind: 'legend'; uid: number }
 	| { kind: 'die'; id: string }
 	| { kind: 'trash'; owner: PlayerId }
+	| { kind: 'gear'; uid: number; host: number }
 	| null
 type Mode = { kind: 'gear'; uid: number } | { kind: 'attack'; attacker: number } | null
 
@@ -236,6 +237,26 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		if (zone === 'gigs') setSel({ kind: 'die', id: d.id })
 	}
 
+	// Cards attached to another card (Gear) tuck underneath it, peeking out above; tap one to read it.
+	const attached = (host: number, gear: number[]) =>
+		gear.map((g, i) => (
+			<div
+				key={g}
+				className={`attached ${sel?.kind === 'gear' && sel.uid === g ? 'sel' : ''}`}
+				style={{ ['--i' as string]: i + 1 }}
+				title={nameOf(s, g)}
+				onClick={(e) => {
+					e.stopPropagation()
+					setMode(null)
+					setSel({ kind: 'gear', uid: g, host })
+				}}
+			>
+				<CardFace d={def(s, g)} />
+			</div>
+		))
+	/** what the selected card is carrying, or the card a selected Gear is attached to */
+	const hostOf = (uid: number) => [...P[0].field, ...P[1].field, ...P[0].legends, ...P[1].legends].find((x) => x.uid === uid)
+
 	// ───── zones ─────
 	const unitView = (u: FieldUnit, owner: PlayerId) => {
 		const d = def(s, u.uid)
@@ -251,7 +272,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 				<div className={`pw ${pw > base ? 'up' : pw < base ? 'down' : ''}`}>{Math.max(0, pw)}</div>
 				{u.lag && !u.attackDespiteLag && !d.keywords.includes('adrenaline') && <div className="badge lag">LAG</div>}
 				{u.goSolo && <div className="badge solo">SOLO</div>}
-				{u.gear.length > 0 && <div className="badge gear">⚙{u.gear.length}</div>}
+				{attached(u.uid, u.gear)}
 			</div>
 		)
 	}
@@ -261,7 +282,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		return (
 			<div key={l.uid} className={`slot legend ${l.spent ? 'spent' : ''} ${sel?.kind === 'legend' && sel.uid === l.uid ? 'sel' : ''} ${mode?.kind === 'gear' && owner === me ? 'target' : ''} ${hl(hint?.legends, l.uid)}`} onClick={() => clickLegend(l, owner)}>
 				<div className="card">{visible ? <CardFace d={d} /> : <CardBack label="LEGEND" />}</div>
-				{l.gear.length > 0 && <div className="badge gear">⚙{l.gear.length}</div>}
+				{attached(l.uid, l.gear)}
 			</div>
 		)
 	}
@@ -482,6 +503,34 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 				</div>
 				{inspectHidden && <div className="inspect-text">A face-down Legend. Nobody — not even you — sees it until it’s flipped with Call a Legend (it’s picked at random). You can still spend it as 1 €$.</div>}
 				{inspect !== null && !inspectHidden && def(s, inspect).text && def(s, inspect).image && <div className="inspect-text">{def(s, inspect).text}</div>}
+				{(() => {
+					if (!sel) return null
+					if (sel.kind === 'gear')
+						return (
+							<div className="attach-info">
+								Equipped to{' '}
+								<button className="link" onClick={() => setSel({ kind: P[0].field.concat(P[1].field).some((u) => u.uid === sel.host) ? 'field' : 'legend', uid: sel.host })}>
+									{P[0].legends.concat(P[1].legends).find((l) => l.uid === sel.host && !l.faceUp) ? 'a face-down Legend' : nameOf(s, sel.host)}
+								</button>
+								{def(s, sel.uid).power ? ` (+${def(s, sel.uid).power} power)` : ''}
+							</div>
+						)
+					if (sel.kind !== 'field' && sel.kind !== 'legend') return null
+					const host = hostOf(sel.uid)
+					if (!host || host.gear.length === 0) return null
+					return (
+						<div className="attach-info">
+							<div className="zl">Equipped ({host.gear.length})</div>
+							<div className="attach-row">
+								{host.gear.map((g) => (
+									<div key={g} className="attach-mini" title={nameOf(s, g)} onClick={() => setSel({ kind: 'gear', uid: g, host: sel.uid })}>
+										<CardFace d={def(s, g)} />
+									</div>
+								))}
+							</div>
+						</div>
+					)
+				})()}
 				<div className="tools">
 					{tools.map((t) => (
 						<button key={t.label} className={`${t.cls ?? ''} ${hinted(t.label) ? 'hint' : ''}`} onClick={t.onClick}>

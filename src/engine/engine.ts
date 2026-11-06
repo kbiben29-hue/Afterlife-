@@ -299,7 +299,9 @@ function play(s: GameState, p: PlayerId, uid: number, target: number | undefined
 		pay(s, p, cost)
 		pl.hand.splice(pl.hand.indexOf(uid), 1)
 		host!.gear.push(uid)
-		log(s, `${pl.name} equips ${nameOf(s, uid)} to ${nameOf(s, target!)}.`)
+		const hostLegend = pl.legends.find((l) => l.uid === target)
+		// a face-down Legend stays secret: don't name it in the log
+		log(s, `${pl.name} equips ${nameOf(s, uid)} to ${hostLegend && !hostLegend.faceUp ? 'a face-down Legend' : nameOf(s, target!)}.`)
 		return
 	}
 	pay(s, p, cost)

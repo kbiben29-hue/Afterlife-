@@ -213,3 +213,15 @@ test('games are deterministic for a seed', () => {
 	const b = started(99)
 	assert.deepEqual(a, b)
 })
+
+test('equipping a face-down Legend does not reveal it in the log', () => {
+	let s = started()
+	giveEddies(s, 0, 5)
+	const gearUid = Math.max(...Object.keys(s.instances).map(Number)) + 1
+	s.instances[gearUid] = { uid: gearUid, cardId: 'ph-RG01', owner: 0 }
+	s.players[0].hand.push(gearUid)
+	const legend = s.players[0].legends[2]
+	s = apply(s, { t: 'play', player: 0, uid: gearUid, target: legend.uid })
+	assert.match(s.log[s.log.length - 1], /to a face-down Legend/)
+	assert.deepEqual(s.players[0].legends[2].gear, [gearUid])
+})
