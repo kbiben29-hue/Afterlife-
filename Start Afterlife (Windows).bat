@@ -31,5 +31,6 @@ echo.
 echo Starting Afterlife... your browser will open in a moment.
 echo Leave this window open while you play. Close it to stop the game.
 echo.
-call npm run dev -- --open
+echo To play on a tablet or phone on the same Wi-Fi, use the Network address shown below.
+call npm run dev -- --open --host --port 5173
 pause

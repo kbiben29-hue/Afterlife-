@@ -73,6 +73,11 @@ On a Mac, double-click **Start Afterlife.command**. The first time, it installs 
 downloads the cards; after that it just starts the game and opens your browser. (If macOS says it
 can't be opened, right-click it and choose **Open**.)
 
+**On an iPad or iPhone:** start the game on your Mac with **Start Afterlife.command** — it prints an
+address like `http://192.168.1.20:5173`. Open that in Safari on the iPad (same Wi-Fi), then tap
+**Share → Add to Home Screen** to get a full-screen Afterlife icon. The Mac has to be running the game
+while you play. Landscape works best.
+
 On Windows, double-click **Start Afterlife (Windows).bat**. (If Windows SmartScreen appears, click
 **More info** → **Run anyway**.) Both need [Node.js](https://nodejs.org) (LTS) installed first.
 

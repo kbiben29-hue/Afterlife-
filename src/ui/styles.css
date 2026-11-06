@@ -27,6 +27,9 @@ body,
 	-webkit-user-select: none;
 	user-select: none;
 	-webkit-tap-highlight-color: transparent;
+	-webkit-touch-callout: none;
+	touch-action: manipulation; /* no double-tap zoom on iPad / iPhone */
+	overscroll-behavior: none;
 }
 button,
 input,
@@ -43,8 +46,10 @@ button {
 	letter-spacing: 0.04em;
 	clip-path: polygon(0 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%);
 }
-button:hover {
-	border-color: var(--cyan);
+@media (hover: hover) {
+	button:hover {
+		border-color: var(--cyan);
+	}
 }
 button.primary {
 	background: var(--yellow);
@@ -540,9 +545,13 @@ button.tool {
 	width: 112px;
 	height: 157px;
 }
-.slot.hand-card:hover,
 .slot.hand-card.sel {
 	transform: translateY(-14px);
+}
+@media (hover: hover) {
+	.slot.hand-card:hover {
+		transform: translateY(-14px);
+	}
 }
 .slot.hand-card.playable .card {
 	box-shadow: 0 0 10px rgba(25, 227, 240, 0.6);
