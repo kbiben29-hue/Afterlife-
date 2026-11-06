@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { actor, attackers, available, canPlay, def, gigsToSteal, legalGigDice, nameOf, streetCred, unitPower } from '../engine/engine'
+import { actor, attackers, available, canPlay, def, gigsToSteal, hasBlocker, legalGigDice, nameOf, streetCred, unitPower } from '../engine/engine'
+import { attackPower, unblockable } from '../engine/effects'
 import { other as other_, type Die, type FieldUnit, type GameState, type Intent, type LegendSlot, type PlayerId } from '../engine/types'
 import { CardBack, CardFace } from './Card'
 import type { Hint } from './coach'
@@ -92,8 +93,28 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 	const who = actor(s)
 	const myTurnToAct = who === me
 	const inspect = !sel || sel.kind === 'die' ? null : sel.kind === 'trash' ? (P[sel.owner].trash[P[sel.owner].trash.length - 1] ?? null) : sel.uid
-	// a face-down Legend stays secret until it is flipped — even to its owner
-	const inspectHidden = sel?.kind === 'legend' && !(P[0].legends.find((l) => l.uid === sel.uid) ?? P[1].legends.find((l) => l.uid === sel.uid))?.faceUp
+	// A card's question (choose a die, a Unit, cards…) — only the chooser sees the options.
+	const question = pend.kind === 'choose' && myTurnToAct ? pend.question : null
+	const qKey = pend.kind === 'choose' ? `${pend.task.key}:${pend.task.source}:${pend.task.answers.length}:${question?.prompt}` : ''
+	const [picks, setPicks] = useState<string[]>([])
+	const [choiceHidden, setChoiceHidden] = useState(false)
+	useEffect(() => {
+		setPicks([])
+		setChoiceHidden(false)
+	}, [qKey])
+	const optByUid = new Map((question?.options ?? []).filter((o) => o.uid !== undefined).map((o) => [o.uid!, o]))
+	const optByDie = new Map((question?.options ?? []).filter((o) => o.dieId !== undefined).map((o) => [o.dieId!, o]))
+	const pickOpt = (id: string) => {
+		if (!question) return
+		if (question.max === 1) return act({ t: 'choose', player: me, picks: [id] })
+		setPicks((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : cur.length < question.max ? [...cur, id] : cur))
+	}
+	const optCls = (o: { id: string } | undefined) => (o ? (picks.includes(o.id) ? 'opt picked' : 'opt') : '')
+	// Face-down Legends you've looked at (Kiroshi Optics, T-Bug, Radioport) you may peek at again.
+	const peekable = new Set([...(P[me].knownLegends ?? []), ...(question?.reveal ?? [])])
+	// a face-down Legend stays secret until it is flipped — even to its owner, unless they've looked at it
+	const inspectHidden =
+		sel?.kind === 'legend' && !peekable.has(sel.uid) && !(P[0].legends.find((l) => l.uid === sel.uid) ?? P[1].legends.find((l) => l.uid === sel.uid))?.faceUp
 
 	useEffect(() => {
 		logRef.current?.scrollTo(0, logRef.current.scrollHeight)
@@ -238,18 +259,21 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		return () => window.removeEventListener('keydown', onKey)
 	}, [])
 	const clickUnit = (u: FieldUnit, owner: PlayerId) => {
+		if (optByUid.has(u.uid)) return pickOpt(optByUid.get(u.uid)!.id)
 		if (mode?.kind === 'gear' && owner === me) return act({ t: 'play', player: me, uid: mode.uid, target: u.uid })
 		if (mode?.kind === 'attack' && owner === rv) return act({ t: 'attack', player: me, attacker: mode.attacker, target: { kind: 'unit', uid: u.uid } })
 		setMode(null)
 		toggle({ kind: 'field', uid: u.uid })
 	}
 	const clickLegend = (l: LegendSlot, owner: PlayerId) => {
+		if (optByUid.has(l.uid)) return pickOpt(optByUid.get(l.uid)!.id)
 		if (mode?.kind === 'gear' && owner === me) return act({ t: 'play', player: me, uid: mode.uid, target: l.uid })
 		if (!l.faceUp && owner !== me) return
 		setMode(null)
 		toggle({ kind: 'legend', uid: l.uid })
 	}
 	const clickDie = (d: Die, owner: PlayerId, zone: 'fixer' | 'gigs') => {
+		if (zone === 'gigs' && optByDie.has(d.id)) return pickOpt(optByDie.get(d.id)!.id)
 		if (pend.kind === 'chooseGig' && zone === 'fixer' && owner === me && myTurnToAct) return act({ t: 'chooseGig', player: me, dieId: d.id })
 		if (pend.kind === 'steal' && zone === 'gigs' && owner === rv && myTurnToAct) return act({ t: 'steal', player: me, dieId: d.id })
 		if (zone === 'gigs') setSel({ kind: 'die', id: d.id })
@@ -283,7 +307,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		const targetable = (mode?.kind === 'attack' && owner === rv && u.spent) || (mode?.kind === 'gear' && owner === me)
 		const isAtk = atk && (atk.attacker === u.uid || (atk.target.kind === 'unit' && atk.target.uid === u.uid))
 		return (
-			<div key={u.uid} className={`slot unit ${u.spent ? 'spent' : ''} ${sel?.kind === 'field' && sel.uid === u.uid ? 'sel' : ''} ${targetable ? 'target' : ''} ${canAtk.has(u.uid) ? 'can-attack' : ''} ${isAtk ? 'in-fight' : ''} ${unitHint(u.uid)}`} onClick={() => clickUnit(u, owner)}>
+			<div key={u.uid} className={`slot unit ${u.spent ? 'spent' : ''} ${sel?.kind === 'field' && sel.uid === u.uid ? 'sel' : ''} ${targetable ? 'target' : ''} ${canAtk.has(u.uid) ? 'can-attack' : ''} ${isAtk ? 'in-fight' : ''} ${unitHint(u.uid)} ${optCls(optByUid.get(u.uid))}`} onClick={() => clickUnit(u, owner)}>
 				<div className="card">
 					<CardFace d={d} />
 				</div>
@@ -296,10 +320,12 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 	}
 	const legendView = (l: LegendSlot, owner: PlayerId) => {
 		const d = def(s, l.uid)
-		const visible = l.faceUp
+		const peek = !l.faceUp && owner === me && peekable.has(l.uid)
+		const visible = l.faceUp || peek
 		return (
-			<div key={l.uid} className={`slot legend ${l.spent ? 'spent' : ''} ${sel?.kind === 'legend' && sel.uid === l.uid ? 'sel' : ''} ${mode?.kind === 'gear' && owner === me ? 'target' : ''} ${hl(hint?.legends, l.uid)}`} onClick={() => clickLegend(l, owner)}>
+			<div key={l.uid} className={`slot legend ${l.spent ? 'spent' : ''} ${peek ? 'peek' : ''} ${sel?.kind === 'legend' && sel.uid === l.uid ? 'sel' : ''} ${mode?.kind === 'gear' && owner === me ? 'target' : ''} ${hl(hint?.legends, l.uid)} ${optCls(optByUid.get(l.uid))}`} onClick={() => clickLegend(l, owner)}>
 				<div className="card">{visible ? <CardFace d={d} /> : <CardBack label="LEGEND" />}</div>
+				{peek && <div className="badge peek-b">FACE-DOWN</div>}
 				{attached(l.uid, l.gear)}
 			</div>
 		)
@@ -340,7 +366,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 					>
 						<span className="banner-t">RIVAL GIGS</span>
 						{aiming && attacker ? (
-							<span className="banner-v">Attack! steals {Math.min(gigsToSteal(unitPower(s, attacker)), other.gigs.length)}</span>
+							<span className="banner-v">Attack! steals {Math.min(gigsToSteal(attackPower(s, attacker.uid)), other.gigs.length)}</span>
 						) : (
 							<span className="banner-v">
 								{other.gigs.length} · ☆ {streetCred(other) ?? '—'}
@@ -363,7 +389,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 						</div>
 						<div className="dice-row">
 							{pl.gigs.map((d) => (
-								<DieView key={d.id} d={d} tone={d.id.startsWith(`${me}-`) ? 'cyan' : 'pink'} size={54} rolling={rolling.has(d.id)} hot={stealHot} hinted={!!hint?.dice?.includes(d.id)} selected={sel?.kind === 'die' && sel.id === d.id} onClick={() => clickDie(d, p, 'gigs')} />
+								<DieView key={d.id} d={d} tone={d.id.startsWith(`${me}-`) ? 'cyan' : 'pink'} size={54} rolling={rolling.has(d.id)} hot={stealHot || optByDie.has(d.id)} hinted={!!hint?.dice?.includes(d.id)} selected={sel?.kind === 'die' && sel.id === d.id} onClick={() => clickDie(d, p, 'gigs')} />
 							))}
 						</div>
 					</div>
@@ -440,6 +466,9 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		prompt = 'Your opening hand. Keep it, or shuffle it back and draw 6 new cards (once)?'
 		buttons.push({ label: 'Keep', onClick: () => act({ t: 'mulligan', player: me, redraw: false }), primary: true })
 		buttons.push({ label: 'Mulligan', onClick: () => act({ t: 'mulligan', player: me, redraw: true }) })
+	} else if (pend.kind === 'choose' && question) {
+		prompt = `${def(s, pend.task.source).name} — answer the card’s question.`
+		if (choiceHidden) buttons.push({ label: 'Show the question', onClick: () => setChoiceHidden(false), primary: true })
 	} else if (pend.kind === 'chooseGig') {
 		prompt = 'Gain a Gig: pick a die from your Fixer area to roll (the d20 comes last).'
 	} else if (pend.kind === 'steal') {
@@ -451,7 +480,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		buttons.push({ label: 'Resolve attack', onClick: () => act({ t: 'pass', player: me }), primary: true })
 		if (!P[me].calledThisTurn && P[me].legends.some((l) => !l.faceUp)) buttons.push({ label: 'Call a Legend (1 €$)', onClick: () => act({ t: 'callLegend', player: me }) })
 		for (const u of P[me].field)
-			if (!u.spent && def(s, u.uid).keywords.includes('blocker')) buttons.push({ label: `Block with ${def(s, u.uid).name}`, onClick: () => act({ t: 'block', player: me, blocker: u.uid }) })
+			if (!u.spent && hasBlocker(s, u) && !unblockable(s, a.attacker)) buttons.push({ label: `Block with ${def(s, u.uid).name}`, onClick: () => act({ t: 'block', player: me, blocker: u.uid }) })
 	} else if (pend.kind === 'main') {
 		prompt =
 			mode?.kind === 'attack'
@@ -525,11 +554,69 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 					)}
 				</div>
 	)
+	// The card's question floats over the table: options as buttons (with the card when it is one).
+	const onBoardOpt = (o: { uid?: number; dieId?: string }) => o.dieId !== undefined || (o.uid !== undefined && [...P[0].field, ...P[1].field, ...P[0].legends, ...P[1].legends].some((x) => x.uid === o.uid))
+	const okCount = !!question && picks.length >= question.min && picks.length <= question.max
+	const showCards = !!question && question.options.some((o) => o.uid !== undefined && !onBoardOpt(o))
+	const choicePanel =
+		question && !choiceHidden && pend.kind === 'choose' ? (
+			<div className={`choice-panel ${layout}`}>
+				<div className="cp-head">
+					<span className="cp-src">{def(s, pend.task.source).name}</span>
+					<button className="cp-hide" onClick={() => setChoiceHidden(true)}>
+						Hide to look at the table
+					</button>
+				</div>
+				<div className="cp-q">{question.prompt}</div>
+				{question.options.some(onBoardOpt) && <div className="cp-tip">You can also tap the glowing card or die on the table.</div>}
+				{question.reveal && question.reveal.length > 0 && (
+					<div className="cp-reveal">
+						{question.reveal.map((u) => (
+							<div key={u} className="cp-card">
+								<CardFace d={def(s, u)} />
+							</div>
+						))}
+					</div>
+				)}
+				<div className={`cp-options ${showCards ? 'cards' : ''}`}>
+					{question.options.map((o) =>
+						showCards && o.uid !== undefined ? (
+							<button key={o.id} className={`cp-card-opt ${picks.includes(o.id) ? 'picked' : ''}`} onClick={() => pickOpt(o.id)}>
+								<div className="cp-card">
+									<CardFace d={def(s, o.uid)} />
+								</div>
+								<span>{o.label}</span>
+							</button>
+						) : (
+							<button key={o.id} className={`${picks.includes(o.id) ? 'picked' : ''} ${question.options.length === 1 ? 'primary' : ''} ${hinted(o.label) ? 'hint' : ''}`} onClick={() => pickOpt(o.id)}>
+								{picks.includes(o.id) ? '✓ ' : ''}
+								{o.label}
+							</button>
+						),
+					)}
+				</div>
+				<div className="cp-foot">
+					{question.max > 1 && (
+						<button className={`primary ${hinted('Confirm') ? 'hint' : ''}`} disabled={!okCount} onClick={() => okCount && act({ t: 'choose', player: me, picks })}>
+							{okCount ? `Confirm (${picks.length})` : `Pick ${question.min === question.max ? question.min : `${question.min}–${question.max}`}`}
+						</button>
+					)}
+					{question.min === 0 && (
+						<button onClick={() => act({ t: 'choose', player: me, picks: [] })}>{question.max > 1 ? 'Take none' : 'Skip'}</button>
+					)}
+				</div>
+				{error && (
+					<div className="error" onClick={() => setError(null)}>
+						{error}
+					</div>
+				)}
+			</div>
+		) : null
 	const handCards = (
 		<>
 					{P[me].hand.map((uid) =>
 						handVisible ? (
-							<div key={uid} data-uid={uid} className={`slot hand-card ${hl(hint?.hand, uid)} ${sel?.kind === 'hand' && sel.uid === uid ? 'sel' : ''} ${myTurnToAct && canPlay(s, me, uid) && (pend.kind === 'main' || pend.kind === 'react') ? 'playable' : ''}`} onClick={() => toggle({ kind: 'hand', uid })}>
+							<div key={uid} data-uid={uid} className={`slot hand-card ${hl(hint?.hand, uid)} ${sel?.kind === 'hand' && sel.uid === uid ? 'sel' : ''} ${myTurnToAct && canPlay(s, me, uid) && (pend.kind === 'main' || pend.kind === 'react') ? 'playable' : ''} ${optCls(optByUid.get(uid))}`} onClick={() => (optByUid.has(uid) ? pickOpt(optByUid.get(uid)!.id) : toggle({ kind: 'hand', uid }))}>
 								<div className="card">
 									<CardFace d={def(s, uid)} />
 								</div>
@@ -586,7 +673,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 					<div>
 						{P[0].name} {P[0].gigs.length} Gigs · {P[1].name} {P[1].gigs.length} Gigs
 					</div>
-					{bot && <div className="dim">Computer: plays Units, Gear and attacks; ignores card text.</div>}
+					{bot && <div className="dim">Computer: uses the abilities of automated cards (both starter decks); other card text is up to you.</div>}
 				</div>
 				<div className="log" ref={logRef}>
 					{s.log.map((l, i) => (
@@ -662,6 +749,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 			<main className="table">
 				{side(rv, true)}
 				{promptBar}
+				{choicePanel}
 				{side(me, false)}
 				<div className="hand" ref={handRef} style={{ ['--overlap' as string]: `${Math.min(0, (1150 - P[me].hand.length * 122) / Math.max(1, P[me].hand.length - 1))}px` }}>
 					{handCards}
@@ -719,7 +807,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 
 				<div className="p-oppgigs">
 					{rivalPl.gigs.map((d) => (
-						<DieView key={d.id} d={d} tone={d.id.startsWith(`${me}-`) ? 'cyan' : 'pink'} size={34} rolling={rolling.has(d.id)} hot={stealHot} hinted={!!hint?.dice?.includes(d.id)} onClick={() => clickDie(d, rv, 'gigs')} />
+						<DieView key={d.id} d={d} tone={d.id.startsWith(`${me}-`) ? 'cyan' : 'pink'} size={34} rolling={rolling.has(d.id)} hot={stealHot || optByDie.has(d.id)} hinted={!!hint?.dice?.includes(d.id)} onClick={() => clickDie(d, rv, 'gigs')} />
 					))}
 					{rivalPl.gigs.length === 0 && <span className="dim">No Gigs yet</span>}
 				</div>
@@ -730,13 +818,14 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 					{aiming && attacker && (
 						<button className={`p-attack-gigs ${hint?.gigTarget ? 'hint' : ''}`} onClick={() => act({ t: 'attack', player: me, attacker: mode!.attacker, target: { kind: 'gigs' } })}>
 							Attack their Gigs
-							<small>steals {Math.min(gigsToSteal(unitPower(s, attacker)), rivalPl.gigs.length)}</small>
+							<small>steals {Math.min(gigsToSteal(attackPower(s, attacker.uid)), rivalPl.gigs.length)}</small>
 						</button>
 					)}
 				</section>
 
 				{coach && <div className="p-coach">{coach}</div>}
 				<div className="p-prompt">{promptBar}</div>
+				{choicePanel}
 
 				<section className="p-me">
 					<div className={`p-gigs ${flash[me] ? `flash-${flash[me]}` : ''}`}>
@@ -752,7 +841,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 						</div>
 						<div className="p-dice">
 							{mine.gigs.map((d) => (
-								<DieView key={d.id} d={d} tone={d.id.startsWith(`${me}-`) ? 'cyan' : 'pink'} size={44} rolling={rolling.has(d.id)} hinted={!!hint?.dice?.includes(d.id)} selected={sel?.kind === 'die' && sel.id === d.id} onClick={() => clickDie(d, me, 'gigs')} />
+								<DieView key={d.id} d={d} tone={d.id.startsWith(`${me}-`) ? 'cyan' : 'pink'} size={44} rolling={rolling.has(d.id)} hot={optByDie.has(d.id)} hinted={!!hint?.dice?.includes(d.id)} selected={sel?.kind === 'die' && sel.id === d.id} onClick={() => clickDie(d, me, 'gigs')} />
 							))}
 						</div>
 						<div className="p-fixer" title="Fixer — dice not yet taken">

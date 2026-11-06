@@ -19,7 +19,7 @@ const C = (
 	cost,
 	power,
 	ram: opts.ram ?? (type === 'legend' ? 2 : 1),
-	sell: opts.sell ?? type !== 'legend',
+	sell: opts.sell ?? type !== 'unit', // the database's "eddiable" flag: Units mostly can't be sold
 	keywords: opts.kw ?? [],
 	text: '',
 	tags: opts.tags ?? [],
@@ -39,7 +39,7 @@ export const STARTER_FIXTURE: Record<string, CardDef> = Object.fromEntries(
 		C('evelyn-parker-scheming-siren', 'Evelyn Parker', 'unit', 'blue', 2, 0, { ram: 3 }),
 		C('delamain-cab', 'Delamain Cab', 'unit', 'blue', 4, 4),
 		C('psycho-squad', 'Psycho Squad', 'unit', 'blue', 4, 6),
-		C('mt0d12-flathead', 'MT0D12 Flathead', 'unit', 'blue', 5, 7, { ram: 3 }),
+		C('mt0d12-flathead', 'MT0D12 Flathead', 'unit', 'blue', 5, 7, { ram: 3, sell: true }),
 		C('kiroshi-optics', 'Kiroshi Optics', 'gear', 'yellow', 1, 1),
 		C('mandibular-upgrade', 'Mandibular Upgrade', 'gear', 'yellow', 1, 0, { ram: 2 }),
 		C('zetatech-faceplate', 'Zetatech Faceplate', 'gear', 'yellow', 2, 2),

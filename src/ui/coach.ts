@@ -2,6 +2,7 @@
 // the Street AI would make in their place (bot.ts), so it works with any deck and any cards.
 
 import { chooseIntent } from '../bot/bot'
+import { attackPower, isScripted } from '../engine/effects'
 import { available, def, gigsToSteal, legalGigDice, nameOf, streetCred, unitPower, findUnit } from '../engine/engine'
 import { other, type GameState, type PlayerId } from '../engine/types'
 
@@ -67,6 +68,20 @@ export function coachFor(s: GameState, me: PlayerId, seen: Set<string>): CoachSt
 	}
 
 	switch (pend.kind) {
+		case 'choose': {
+			const sugg = chooseIntent(s)
+			const q = pend.question
+			const best = sugg && sugg.t === 'choose' ? q.options.filter((o) => sugg.picks.includes(o.id)) : []
+			const src = def(s, pend.task.source)
+			return step(
+				'choose',
+				`${src.name} asks you to choose`,
+				`Card abilities now work by themselves: when one needs a decision — which die to change, which Unit to target, which cards to keep — the game stops and asks. The question pops up in a box over the table; options on the table also glow, so you can tap them there. ${best.length ? `A good pick here: ${best.map((o) => o.label).join(', ')}.` : q.min === 0 ? 'Skipping is fine here.' : ''}`,
+				best.length ? `Suggested: ${best.map((o) => o.label).join(', ')}.` : 'Make your choice.',
+				{ buttons: best.length === 1 && q.max === 1 ? [best[0].label] : q.max > 1 ? ['Confirm'] : [], hand: best.filter((o) => o.uid !== undefined && P[me].hand.includes(o.uid)).map((o) => o.uid!), dice: best.filter((o) => o.dieId).map((o) => o.dieId!) },
+				seen,
+			)
+		}
 		case 'chooseFirst':
 			return step(
 				'first',
@@ -196,7 +211,7 @@ export function coachFor(s: GameState, me: PlayerId, seen: Set<string>): CoachSt
 			)
 		case 'attack': {
 			const au = findUnit(s, sugg.attacker)!
-			const ap = Math.max(0, unitPower(s, au))
+			const ap = attackPower(s, au.uid)
 			if (sugg.target.kind === 'unit') {
 				const tp = Math.max(0, unitPower(s, findUnit(s, sugg.target.uid)!))
 				return step(
@@ -226,7 +241,9 @@ export function coachFor(s: GameState, me: PlayerId, seen: Set<string>): CoachSt
 export function eventNote(prev: GameState | undefined, s: GameState, me: PlayerId, seen: Set<string>): CoachStep | null {
 	if (!prev) return null
 	const newLines = s.log.slice(prev.log.length)
-	if (!seen.has('program') && newLines.some((l) => l.startsWith(`${s.players[me].name} runs `)))
+	const ran = newLines.find((l) => l.startsWith(`${s.players[me].name} runs `))
+	const ranUid = ran ? prev.players[me].hand.find((u) => !s.players[me].hand.includes(u) && def(s, u).type === 'program') : undefined
+	if (!seen.has('program') && ranUid !== undefined && !isScripted(def(s, ranUid).id))
 		return {
 			key: 'program',
 			title: 'Programs: apply the text yourself',

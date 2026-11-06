@@ -535,3 +535,16 @@ export function runTask(s: GameState, task: Task): { state: GameState } | { need
 		throw e
 	}
 }
+
+/** Power a Unit will attack with: "while attacking" bonuses and sure-fire Attack triggers included. */
+export function attackPower(s: GameState, uid: number): number {
+	const u = findUnit(s, uid)
+	if (!u) return 0
+	const was = s.attacking
+	s.attacking = uid
+	let p = unitPower(s, u)
+	s.attacking = was
+	const o = ownerOf(s, uid)
+	if (s.instances[uid].cardId === 'goro-takemura-losing-his-way' && s.players[o].legends.every((l) => l.faceUp)) p += 5
+	return Math.max(0, p)
+}

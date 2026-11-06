@@ -43,6 +43,23 @@ The choice (Auto / Touch / Table) is in the menu, stored in localStorage `afterl
 Shared pieces are built once in Board (`promptBar`, `handCards`, `menuButtons`, `tableTools`,
 `statusAndLog`, `viewerContent`); `pocket()` lays them out.
 
+## Card abilities (effects.ts)
+
+Scripts are keyed `${cardId}:${trigger}` (play, attack, defeated, call, program, hostAttack,
+hostSpent, hostWin, static). The engine `fire()`s a Task onto `state.queue`; `settle()` (end of
+every `apply`) runs each Task on a clone. A script asks with `c.ask(player, question)`: if no answer
+is recorded yet it throws `NeedChoice`, nothing is kept, and `pending` becomes `{kind:'choose'}`;
+the `choose` intent records the picks and the Task re-runs from the start (deterministic replay).
+A question with exactly one possible answer is answered automatically. Options carry a `score` for
+the bot and the coach. Static rules (Saburo, Flathead, Mandibular, Chrome Fang, Reboot Optics,
+Sandevistan, Delamain, Jackie/Yorinobu once-per-turn) are hooks in engine.ts. Starter decklists:
+`src/data/starters.ts`; test stand-ins (numbers only, no text): `src/engine/starters.fixture.ts`,
+also used in-app to fill any starter card missing from the loaded pool.
+
+Lessons (`src/ui/lessons.ts`): `PLANS` (game-plan pages), `DRILLS` (built with
+`engine/scenario.ts`, `steps()` drive the coach, `success()` ends it; `lessons.test.ts` solves each),
+`COMBOS` (alerts in a coached game). All text is our own wording — never copy card text.
+
 ## Online play
 
 `src/net/transport.ts` (PeerJS loaded from unpkg on demand; `?net=local` = BroadcastChannel between
@@ -79,8 +96,8 @@ The workflow fails if `dist/cards` exists, so card data is never published.
 
 ## Not done yet / next steps
 
-1. Script card abilities (Play / Attack / Defeated / Call triggers, Spend activations, static
-   effects) — add an effect registry keyed by card id; until then players use the table tools.
+1. Script more cards in `src/engine/effects.ts` (both starter decks are done). Add a stand-in to
+   `starters.fixture.ts`-style fixtures and a test per card.
 2. Verify `tools/netdeck.ts` / `tools/fetch-cards.ts` against the live API (written without access to it):
    known endpoints are `api.netdeck.gg/api/cyberpunk/decks/<uuid>` and `api.netdeck.gg/api/cards/cyberpunk/<slug>/image`;
    the card-list endpoint is discovered at run time. Fix `mapCard()` from `vendor/cards/api-raw.json`.
