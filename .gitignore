@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Card database fetched locally by `npm run fetch-cards` — card text and art belong to
+# WeirdCo / CD PROJEKT RED and are never committed.
+public/cards/
+vendor/
+
+.screens/
+.DS_Store
