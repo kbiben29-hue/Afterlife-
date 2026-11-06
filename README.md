@@ -66,6 +66,9 @@ On a Mac, double-click **Start Afterlife.command**. The first time, it installs 
 downloads the cards; after that it just starts the game and opens your browser. (If macOS says it
 can't be opened, right-click it and choose **Open**.)
 
+On Windows, double-click **Start Afterlife (Windows).bat**. (If Windows SmartScreen appears, click
+**More info** → **Run anyway**.) Both need [Node.js](https://nodejs.org) (LTS) installed first.
+
 Or from a terminal:
 
 ```bash
