@@ -35,11 +35,11 @@ npm run typecheck           # tsc -b (needs npm install for the React types)
 
 ## Releases
 
-`.github/workflows/release.yml` runs on every push to main: tests → web build pushed to the
-`gh-pages` branch of the public repo kbiben29-hue/afterlife-play (the play link) → Tauri apps
-(`src-tauri/`, macOS universal .dmg + Windows NSIS .exe) → a new release on afterlife-play with the
-stable names `Afterlife-Mac.dmg` / `Afterlife-Windows-Setup.exe` (keeps the 3 newest). Needs the
-`PLAY_TOKEN` secret (fine-grained token, Contents read/write on afterlife-play). Same pattern as Ready Room.
+`.github/workflows/release.yml` runs on every push to main: tests → web build deployed to this
+repo's GitHub Pages (https://kbiben29-hue.github.io/Afterlife-/, Pages source "GitHub Actions") →
+Tauri apps (`src-tauri/`, macOS universal .dmg + Windows NSIS .exe) → a new release on this repo with
+the stable names `Afterlife-Mac.dmg` / `Afterlife-Windows-Setup.exe` (keeps the 3 newest). The repo is
+public; only GITHUB_TOKEN is used.
 
 Card data in published builds: `src/data/cards.ts` loads `public/cards/cards.json` if present (local
 only), else fetches the Netdeck.gg API live on the player's device (desktop: through the
