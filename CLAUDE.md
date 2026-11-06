@@ -33,6 +33,16 @@ npm run typecheck           # tsc -b (needs npm install for the React types)
 - `src/ui/` — `Board.tsx` (table, prompt bar, table tools), `Setup.tsx`, `Card.tsx`, `styles.css`.
 - `src/App.tsx` — fit-to-screen scaling of the 1600×1000 stage, history/undo, autosave (localStorage), bot loop.
 
+## Layouts
+
+`Board` renders two layouts from the same logic: **console** (the 1440×900 table scaled to fit, the
+default on computers) and **pocket** (touch layout, default when `(pointer: coarse)`; a real
+responsive page, not scaled: rival as a summary bar + their gig dice and units, your gigs/field/
+legends/chips, sticky hand dock, bottom sheets for the card viewer, rival details, menu and log).
+The choice (Auto / Touch / Table) is in the menu, stored in localStorage `afterlife.layout`.
+Shared pieces are built once in Board (`promptBar`, `handCards`, `menuButtons`, `tableTools`,
+`statusAndLog`, `viewerContent`); `pocket()` lays them out.
+
 ## Online play
 
 `src/net/transport.ts` (PeerJS loaded from unpkg on demand; `?net=local` = BroadcastChannel between

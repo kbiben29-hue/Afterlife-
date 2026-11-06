@@ -3,7 +3,7 @@ import { actor, newGame, tryApply } from './engine/engine'
 import type { GameState, Intent, PlayerId } from './engine/types'
 import { chooseIntent } from './bot/bot'
 import { loadCards, type CardPool } from './data/cards'
-import { Board } from './ui/Board'
+import { Board, type LayoutChoice } from './ui/Board'
 import { Setup, type SetupResult } from './ui/Setup'
 import { coachFor, eventNote, INTRO, type CoachStep } from './ui/coach'
 import { hostGame, joinGame, newGameCode, type Conn, type Host } from './net/transport'
@@ -36,6 +36,18 @@ interface Lobby {
 	error?: string
 }
 
+const LAYOUT_KEY = 'afterlife.layout'
+function readLayout(): LayoutChoice {
+	try {
+		const v = localStorage.getItem(LAYOUT_KEY)
+		return v === 'pocket' || v === 'console' ? v : 'auto'
+	} catch {
+		return 'auto'
+	}
+}
+/** Touch screens (iPad, iPhone) get the touch layout unless the player picks the table layout. */
+const isTouch = () => typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches
+
 /** One PC-style layout for every screen: the 1600×1000 table is scaled to fit. */
 function useFit() {
 	const [scale, setScale] = useState(1)
@@ -64,6 +76,16 @@ export default function App() {
 	const [viewer, setViewer] = useState<PlayerId>(0)
 	const [handoff, setHandoff] = useState<PlayerId | null>(null)
 	const botTimer = useRef<number | undefined>(undefined)
+	const [layoutChoice, setLayoutChoice] = useState<LayoutChoice>(() => readLayout())
+	const pocket = layoutChoice === 'pocket' || (layoutChoice === 'auto' && isTouch())
+	const chooseLayout = (c: LayoutChoice) => {
+		setLayoutChoice(c)
+		try {
+			localStorage.setItem(LAYOUT_KEY, c)
+		} catch {
+			/* ignore */
+		}
+	}
 	const [lobby, setLobby] = useState<Lobby | null>(null)
 	const [net, setNet] = useState<{ ok: boolean; text: string } | null>(null)
 	const [netError, setNetError] = useState<string | null>(null)
@@ -351,6 +373,9 @@ export default function App() {
 					onUndo={session.history.length > 1 && !session.online ? undo : undefined}
 					onMenu={() => (session.online && closeNet(), setSession(null), setJoinCode(null))}
 					onExport={exportGame}
+					layout={pocket ? 'pocket' : 'console'}
+					layoutChoice={layoutChoice}
+					onLayout={chooseLayout}
 					hint={coachStep && !session.tutorial?.note && (session.tutorial?.intro ?? 0) >= INTRO.length ? coachStep.hint : undefined}
 					coach={
 						session.tutorial ? (
@@ -370,6 +395,8 @@ export default function App() {
 				)}
 			</>
 		)
+
+	if (pocket && session && state && !lobby) return <div className="pocket-root">{body}</div>
 
 	return (
 		<div className="viewport">

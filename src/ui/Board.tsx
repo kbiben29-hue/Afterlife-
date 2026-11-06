@@ -27,7 +27,12 @@ export interface BoardProps {
 	onExport: () => void
 	hint?: Hint
 	coach?: ReactNode
+	layout?: 'pocket' | 'console'
+	layoutChoice?: LayoutChoice
+	onLayout?: (c: LayoutChoice) => void
 }
+
+export type LayoutChoice = 'auto' | 'pocket' | 'console'
 
 function DieView({
 	d,
@@ -57,7 +62,8 @@ function DieView({
 	)
 }
 
-export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, onExport, hint, coach }: BoardProps) {
+export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, onExport, hint, coach, layout = 'console', layoutChoice = 'auto', onLayout }: BoardProps) {
+	const [sheet, setSheet] = useState<'menu' | 'log' | 'opp' | null>(null)
 	const [sel, setSel] = useState<Sel>(null)
 	const [mode, setMode] = useState<Mode>(null)
 	const [error, setError] = useState<string | null>(null)
@@ -501,11 +507,8 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 	const sideTools = tableOpen && myTurnToAct
 	const handVisible = !hideHand && pend.kind !== 'chooseFirst'
 
-	return (
-		<div className="board" onPointerDown={unlockAudio}>
-
-			<main className="table">
-				{side(rv, true)}
+	// ───── pieces shared by both layouts ─────
+	const promptBar = (
 				<div className="prompt">
 					<div className="prompt-text">{prompt}</div>
 					<div className="prompt-buttons">
@@ -521,8 +524,9 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 						</div>
 					)}
 				</div>
-				{side(me, false)}
-				<div className="hand" ref={handRef} style={{ ['--overlap' as string]: `${Math.min(0, (1150 - P[me].hand.length * 122) / Math.max(1, P[me].hand.length - 1))}px` }}>
+	)
+	const handCards = (
+		<>
 					{P[me].hand.map((uid) =>
 						handVisible ? (
 							<div key={uid} data-uid={uid} className={`slot hand-card ${hl(hint?.hand, uid)} ${sel?.kind === 'hand' && sel.uid === uid ? 'sel' : ''} ${myTurnToAct && canPlay(s, me, uid) && (pend.kind === 'main' || pend.kind === 'react') ? 'playable' : ''}`} onClick={() => toggle({ kind: 'hand', uid })}>
@@ -538,11 +542,10 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 							</div>
 						),
 					)}
-				</div>
-			</main>
-
-			<aside className="right">
-				<div className="menu-row">
+		</>
+	)
+	const menuButtons = (
+		<>
 					<button onClick={onMenu}>Menu</button>
 					{onUndo && <button onClick={onUndo}>Undo</button>}
 					<button onClick={onExport}>Export</button>
@@ -556,9 +559,16 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 					>
 						{soundOn ? '🔊' : '🔇'}
 					</button>
-				</div>
-				{coach}
-{sideTools && (
+			{onLayout && (
+				<select className="layout-pick" value={layoutChoice} onChange={(e) => onLayout(e.target.value as LayoutChoice)} title="Layout on this device">
+					<option value="auto">Layout: Auto</option>
+					<option value="pocket">Layout: Touch</option>
+					<option value="console">Layout: Table</option>
+				</select>
+			)}
+		</>
+	)
+	const tableTools = sideTools && (
 					<div className="tools small table-tools">
 						<div className="zl">Table tools</div>
 						<button className="tool" onClick={() => manual({ op: 'draw' })}>
@@ -568,7 +578,9 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 							Trash top of deck
 						</button>
 					</div>
-				)}
+				)
+	const statusAndLog = (
+		<>
 				<div className="status">
 					{s.overtime && <div className="ot">OVERTIME — 7 Gigs wins instantly</div>}
 					<div>
@@ -583,12 +595,11 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 						</div>
 					))}
 				</div>
-			</aside>
-				{(inspect !== null || sel) && !mode ? (
-				<div className="inspector inspector-big">
-					<button className="inspector-close" title="Close" onClick={() => (setSel(null), setMode(null))}>
-						✕
-					</button>
+		</>
+	)
+	const showViewer = (inspect !== null || !!sel) && !mode
+	const viewerContent = (
+		<>
 			{inspect !== null && (
 				<div className="inspect">{inspectHidden ? <CardBack label="LEGEND" /> : <CardFace d={def(s, inspect)} big />}</div>
 			)}
@@ -641,8 +652,208 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 					</button>
 				))}
 			</div>
+		</>
+	)
+
+	if (layout === 'pocket') return pocket()
+
+	return (
+		<div className="board" onPointerDown={unlockAudio}>
+			<main className="table">
+				{side(rv, true)}
+				{promptBar}
+				{side(me, false)}
+				<div className="hand" ref={handRef} style={{ ['--overlap' as string]: `${Math.min(0, (1150 - P[me].hand.length * 122) / Math.max(1, P[me].hand.length - 1))}px` }}>
+					{handCards}
+				</div>
+			</main>
+			<aside className="right">
+				<div className="menu-row">{menuButtons}</div>
+				{coach}
+				{tableTools}
+				{statusAndLog}
+			</aside>
+			{showViewer ? (
+				<div className="inspector inspector-big">
+					<button className="inspector-close" title="Close" onClick={() => (setSel(null), setMode(null))}>
+						✕
+					</button>
+					{viewerContent}
 				</div>
 			) : null}
 		</div>
 	)
+
+	// ───── touch layout (iPad / iPhone): your side big, the rival as a summary ─────
+	function pocket() {
+		const rivalPl = P[rv]
+		const mine = P[me]
+		const aiming = mode?.kind === 'attack'
+		const attacker = aiming ? mine.field.find((u) => u.uid === mode!.attacker) : undefined
+		const fixerHot = pend.kind === 'chooseGig' && myTurnToAct ? new Set(legalGigDice(mine).map((d) => d.id)) : new Set<string>()
+		const stealHot = pend.kind === 'steal' && myTurnToAct
+		const topTrash = mine.trash[mine.trash.length - 1]
+		return (
+			<div className={`pocket ${s.active === me ? 'my-turn' : ''}`} onPointerDown={unlockAudio}>
+				<header className="p-top">
+					<button className="p-icon" onClick={() => setSheet(sheet === 'menu' ? null : 'menu')} title="Menu">
+						☰
+					</button>
+					<button className={`p-opp ${flash[rv] ? `flash-${flash[rv]}` : ''} ${s.active === rv ? 'active' : ''}`} onClick={() => setSheet('opp')}>
+						<span className="p-opp-name">
+							{rivalPl.name}
+							{s.active === rv && <i className="p-dot" />}
+						</span>
+						<span className="p-stat">
+							<b>{rivalPl.gigs.length}</b>/7
+						</span>
+						<span className="p-stat cred">☆ {streetCred(rivalPl) ?? '—'}</span>
+						<span className="p-stat">✋ {rivalPl.hand.length}</span>
+						<span className="p-stat">€$ {available(s, rv)}</span>
+						<span className="p-more">›</span>
+					</button>
+					<button className="p-icon p-logbtn" onClick={() => setSheet(sheet === 'log' ? null : 'log')} title="Game log">
+						Log
+					</button>
+				</header>
+
+				<div className="p-oppgigs">
+					{rivalPl.gigs.map((d) => (
+						<DieView key={d.id} d={d} tone={d.id.startsWith(`${me}-`) ? 'cyan' : 'pink'} size={34} rolling={rolling.has(d.id)} hot={stealHot} hinted={!!hint?.dice?.includes(d.id)} onClick={() => clickDie(d, rv, 'gigs')} />
+					))}
+					{rivalPl.gigs.length === 0 && <span className="dim">No Gigs yet</span>}
+				</div>
+
+				<section className={`p-oppfield ${aiming ? 'aim' : ''}`}>
+					{rivalPl.field.length === 0 && !aiming && <div className="p-empty">Rival field empty</div>}
+					{rivalPl.field.map((u) => unitView(u, rv))}
+					{aiming && attacker && (
+						<button className={`p-attack-gigs ${hint?.gigTarget ? 'hint' : ''}`} onClick={() => act({ t: 'attack', player: me, attacker: mode!.attacker, target: { kind: 'gigs' } })}>
+							Attack their Gigs
+							<small>steals {Math.min(gigsToSteal(unitPower(s, attacker)), rivalPl.gigs.length)}</small>
+						</button>
+					)}
+				</section>
+
+				{coach && <div className="p-coach">{coach}</div>}
+				<div className="p-prompt">{promptBar}</div>
+
+				<section className="p-me">
+					<div className={`p-gigs ${flash[me] ? `flash-${flash[me]}` : ''}`}>
+						<div className="readout">
+							<span className="ro-big">
+								{mine.gigs.length}
+								<small>/7</small>
+							</span>
+							<span className="ro-cred">
+								☆ {streetCred(mine) ?? '—'}
+								<small>CRED</small>
+							</span>
+						</div>
+						<div className="p-dice">
+							{mine.gigs.map((d) => (
+								<DieView key={d.id} d={d} tone={d.id.startsWith(`${me}-`) ? 'cyan' : 'pink'} size={44} rolling={rolling.has(d.id)} hinted={!!hint?.dice?.includes(d.id)} selected={sel?.kind === 'die' && sel.id === d.id} onClick={() => clickDie(d, me, 'gigs')} />
+							))}
+						</div>
+						<div className="p-fixer" title="Fixer — dice not yet taken">
+							{mine.fixer.map((d) => (
+								<DieView key={d.id} d={d} fixer tone="cyan" size={fixerHot.size ? 40 : 28} hot={fixerHot.has(d.id)} hinted={!!hint?.dice?.includes(d.id)} onClick={() => clickDie(d, me, 'fixer')} />
+							))}
+						</div>
+					</div>
+
+					<div className={`p-field ${mode?.kind === 'gear' ? 'aim' : ''}`}>
+						{mine.field.length === 0 && <div className="p-empty">Your field — Units you play go here</div>}
+						{mine.field.map((u) => unitView(u, me))}
+					</div>
+
+					<div className="p-row">
+						<div className="p-legends">{mine.legends.map((l) => legendView(l, me))}</div>
+						<div className="p-chip eddies" title="Eddies you can spend">
+							<b>{available(s, me)}</b> €$
+							<small>{mine.eddies.length} sold</small>
+						</div>
+						<div className="p-chip deck" ref={deckRef} title="Deck">
+							<div className="pile-card">
+								<CardBack />
+							</div>
+							<b>{mine.deck.length}</b>
+						</div>
+						<button className="p-chip trash" disabled={topTrash === undefined} onClick={() => topTrash !== undefined && setSel({ kind: 'trash', owner: me })} title="Trash">
+							🗑 <b>{mine.trash.length}</b>
+						</button>
+					</div>
+				</section>
+
+				<div className="p-hand" ref={handRef}>
+					{handCards}
+				</div>
+
+				{showViewer && (
+					<div className="p-sheet-wrap" onClick={() => (setSel(null), setMode(null))}>
+						<div className="p-sheet card-sheet" onClick={(e) => e.stopPropagation()}>
+							<div className="p-grab" />
+							<button className="inspector-close" onClick={() => (setSel(null), setMode(null))}>
+								✕
+							</button>
+							{viewerContent}
+						</div>
+					</div>
+				)}
+				{sheet && (
+					<div className="p-sheet-wrap" onClick={() => setSheet(null)}>
+						<div className="p-sheet" onClick={(e) => e.stopPropagation()}>
+							<div className="p-grab" />
+							<button className="inspector-close" onClick={() => setSheet(null)}>
+								✕
+							</button>
+							{sheet === 'menu' && (
+								<div className="p-menu">
+									{menuButtons}
+									{tableTools}
+								</div>
+							)}
+							{sheet === 'log' && <div className="p-log">{statusAndLog}</div>}
+							{sheet === 'opp' && (
+								<div className="p-oppsheet">
+									<h3>{rivalPl.name}</h3>
+									<div className="p-opp-facts">
+										<span>
+											Gigs <b>{rivalPl.gigs.length}/7</b>
+										</span>
+										<span>
+											Cred <b>{streetCred(rivalPl) ?? '—'}</b>
+										</span>
+										<span>
+											Hand <b>{rivalPl.hand.length}</b>
+										</span>
+										<span>
+											Eddies <b>{available(s, rv)} €$</b>
+										</span>
+										<span>
+											Deck <b>{rivalPl.deck.length}</b>
+										</span>
+										<span>
+											Fixer <b>{rivalPl.fixer.map((d) => `d${d.sides}`).join(' ') || '—'}</b>
+										</span>
+									</div>
+									<div className="zl">Legends — tap a face-up one to read it</div>
+									<div className="p-legends big">{rivalPl.legends.map((l) => legendView(l, rv))}</div>
+									<div className="zl">Trash ({rivalPl.trash.length}) — newest first</div>
+									<div className="p-trashrow">
+										{[...rivalPl.trash].reverse().slice(0, 12).map((uid) => (
+											<div key={uid} className="attach-mini" onClick={() => (setSheet(null), setSel({ kind: 'trash', owner: rv }))}>
+												<CardFace d={def(s, uid)} />
+											</div>
+										))}
+										{rivalPl.trash.length === 0 && <span className="dim">Empty</span>}
+									</div>
+								</div>
+							)}
+						</div>
+					</div>
+				)}
+			</div>
+		)
+	}
 }
