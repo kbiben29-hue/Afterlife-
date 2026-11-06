@@ -1,6 +1,7 @@
 // Every legal intent in a position (used by the computer opponent and the fuzz test).
 
-import { attackers, available, canPlay, def, legalGigDice } from './engine'
+import { attackers, available, canPlay, def, hasBlocker, legalGigDice } from './engine'
+import { NO_GIG_ATTACKS, unblockable } from './effects'
 import { other, type GameState, type Intent, type PlayerId } from './types'
 
 export function legalIntents(s: GameState): Intent[] {
@@ -28,11 +29,22 @@ export function legalIntents(s: GameState): Intent[] {
 		case 'chooseGig':
 			return legalGigDice(me).map((d) => ({ t: 'chooseGig', player: p, dieId: d.id }))
 		case 'steal':
-			return rival.gigs.map((d) => ({ t: 'steal', player: p, dieId: d.id }))
+			return rival.gigs.filter((d) => pend.maxValue === undefined || d.value <= pend.maxValue).map((d) => ({ t: 'steal', player: p, dieId: d.id }))
+		case 'choose': {
+			const q = pend.question
+			const ids = q.options.map((o) => o.id)
+			const best = [...q.options].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).map((o) => o.id)
+			const sets: string[][] = []
+			if (q.min === 0) sets.push([])
+			if (q.min <= 1 && q.max >= 1) for (const id of ids) sets.push([id])
+			if (q.max > 1) sets.push(best.slice(0, q.max))
+			if (q.min > 1) sets.push(best.slice(0, q.min))
+			return sets.map((picks) => ({ t: 'choose', player: p, picks }))
+		}
 		case 'react':
 			out.push({ t: 'pass', player: p })
 			for (const u of me.field)
-				if (!u.spent && def(s, u.uid).keywords.includes('blocker') && !(pend.attack.target.kind === 'unit' && pend.attack.target.uid === u.uid))
+				if (!u.spent && hasBlocker(s, u) && !unblockable(s, pend.attack.attacker) && !(pend.attack.target.kind === 'unit' && pend.attack.target.uid === u.uid))
 					out.push({ t: 'block', player: p, blocker: u.uid })
 			if (callable()) out.push({ t: 'callLegend', player: p })
 			plays()
@@ -48,7 +60,7 @@ export function legalIntents(s: GameState): Intent[] {
 					out.push({ t: 'goSolo', player: p, uid: l.uid })
 			}
 			for (const a of attackers(s, p)) {
-				out.push({ t: 'attack', player: p, attacker: a, target: { kind: 'gigs' } })
+				if (!NO_GIG_ATTACKS.has(s.instances[a].cardId)) out.push({ t: 'attack', player: p, attacker: a, target: { kind: 'gigs' } })
 				for (const u of rival.field) if (u.spent) out.push({ t: 'attack', player: p, attacker: a, target: { kind: 'unit', uid: u.uid } })
 			}
 			return out

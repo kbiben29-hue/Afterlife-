@@ -1,7 +1,9 @@
 // The Afterlife rules engine: newGame(...) and apply(state, intent) -> state.
 // Rules follow the Cyberpunk TCG Gameplay Guide and Comprehensive Rules (Aug 2026 edition).
-// Card abilities beyond the four enforced keywords are applied by players with manual table tools.
+// Card abilities: scripted ones live in effects.ts (triggers queue Tasks, resolved by settle());
+// everything else is applied by players with the manual table tools.
 
+import { BLOCKER_GEAR, CANT_ATTACK, NO_GIG_ATTACKS, READY_AT_END_GEAR, makeTask, runTask, staticPowerBonus, unblockable } from './effects'
 import { Rng } from './rng'
 import {
 	DIE_SIDES,
@@ -120,8 +122,9 @@ function findLegend(s: GameState, uid: number): LegendSlot | undefined {
 export function unitPower(s: GameState, u: FieldUnit): number {
 	const base = def(s, u.uid).power ?? 0
 	const gear = u.gear.reduce((sum, g) => sum + (def(s, g).power ?? 0), 0)
-	return base + gear + u.powerThisTurn + u.powerPermanent
+	return base + gear + u.powerThisTurn + u.powerPermanent + staticPowerBonus(s, u.uid)
 }
+export const hasBlocker = (s: GameState, u: FieldUnit) => def(s, u.uid).keywords.includes('blocker') || u.gear.some((g) => BLOCKER_GEAR.has(s.instances[g].cardId))
 /** CR 2.10.1: negative values read as 0 for references and comparisons. */
 const effective = (n: number) => Math.max(0, n)
 
@@ -162,7 +165,7 @@ function pay(s: GameState, p: PlayerId, amount: number, exclude?: number) {
 	if (src.length < amount) fail(`Not enough Eddies (need ${amount}, have ${src.length})`)
 	for (const x of src.slice(0, amount)) {
 		if (x.kind === 'eddie') s.players[p].eddies.find((e) => e.uid === x.uid)!.spent = true
-		else findLegend(s, x.uid)!.spent = true
+		else spendCard(s, x.uid)
 	}
 }
 
@@ -184,6 +187,78 @@ function leaveField(s: GameState, uid: number, to: 'trash' | 'hand') {
 function defeat(s: GameState, uid: number) {
 	log(s, `${nameOf(s, uid)} is defeated.`)
 	leaveField(s, uid, 'trash')
+}
+
+// ───────────────────────── effects ─────────────────────────
+
+/** Queue a card ability, if it is scripted. */
+export function fire(s: GameState, key: string, source: number, owner: PlayerId, data?: Record<string, unknown>) {
+	const t = makeTask(s, key, source, owner, data)
+	if (t) (s.queue ??= []).push(t)
+}
+const cid = (s: GameState, uid: number) => s.instances[uid].cardId
+
+/** Spend a Unit or Legend; Gear on it with "when the host is spent" triggers. */
+export function spendCard(s: GameState, uid: number) {
+	const t = findUnit(s, uid) ?? findLegend(s, uid)
+	if (!t || t.spent) return
+	t.spent = true
+	for (const g of t.gear) fire(s, `${cid(s, g)}:hostSpent`, g, ownerOf(s, g), { host: uid })
+}
+/** Defeat by a card effect: Defeated triggers fire. */
+export function defeatUnit(s: GameState, uid: number) {
+	if (!findUnit(s, uid)) return
+	const owner = ownerOf(s, uid)
+	defeat(s, uid)
+	fire(s, `${cid(s, uid)}:defeated`, uid, owner)
+}
+export function drawCards(s: GameState, p: PlayerId, n: number) {
+	for (let i = 0; i < n; i++) if (!draw(s, p)) return
+	if (n > 0) log(s, `${s.players[p].name} draws ${n === 1 ? 'a card' : `${n} cards`}.`)
+}
+/** Call a Legend without paying (still the one Call this turn). Random unless a uid is given. */
+export function freeCallLegend(s: GameState, p: PlayerId, uid?: number) {
+	const pl = s.players[p]
+	const down = pl.legends.filter((l) => !l.faceUp)
+	if (!down.length || pl.calledThisTurn) return
+	let pick = uid !== undefined ? down.find((l) => l.uid === uid) : undefined
+	if (!pick) {
+		const rng = new Rng(s.rng)
+		pick = down[rng.int(down.length)]
+		s.rng = rng.seed
+	}
+	flipCalled(s, p, pick)
+}
+function flipCalled(s: GameState, p: PlayerId, pick: LegendSlot) {
+	const pl = s.players[p]
+	pick.faceUp = true
+	pl.calledThisTurn = true
+	const d = def(s, pick.uid)
+	log(s, `${pl.name} calls a Legend: ${nameOf(s, pick.uid)}${d.text ? ` — “${d.text}”` : ''}`)
+	fire(s, `${cid(s, pick.uid)}:call`, pick.uid, p)
+}
+export const overtimeCheckPublic = (s: GameState) => overtimeCheck(s)
+
+/** Resolve queued abilities. Stops at the first question; play continues at `after` once empty. */
+function settle(s: GameState) {
+	if (!s.queue?.length) return
+	if (!s.after) s.after = s.pending
+	while (s.queue?.length && s.pending.kind !== 'over') {
+		const task = s.queue.shift()!
+		s.pending = s.after!
+		const r = runTask(s, task)
+		if ('need' in r) {
+			s.queue.unshift(task)
+			s.pending = { kind: 'choose', player: r.need.player, question: r.need.question, task }
+			return
+		}
+		const { cards, ...rest } = r.state
+		void cards
+		Object.assign(s, rest)
+	}
+	if (s.pending.kind !== 'over') s.pending = s.after!
+	s.after = null
+	s.queue = []
 }
 
 function draw(s: GameState, p: PlayerId): boolean {
@@ -222,6 +297,8 @@ function startTurn(s: GameState, p: PlayerId) {
 	s.players[0].calledThisTurn = false
 	s.players[1].calledThisTurn = false
 	pl.soldThisTurn = false
+	pl.usedThisTurn = []
+	pl.stealShield = false
 	// Ready step
 	for (const u of pl.field) u.spent = false
 	for (const e of pl.eddies) e.spent = false
@@ -260,13 +337,32 @@ function gainGig(s: GameState, p: PlayerId, dieId: string) {
 
 function endTurn(s: GameState, p: PlayerId) {
 	const pl = s.players[p]
+	// End of turn abilities (none of the starter cards ask a question here).
+	const readyEddies = (n: number, why: string) => {
+		const spent = pl.eddies.filter((e) => e.spent).slice(0, n)
+		for (const e of spent) e.spent = false
+		if (spent.length) log(s, `${why}: ${pl.name} readies ${spent.length} Edd${spent.length > 1 ? 'ies' : 'ie'}.`)
+	}
+	for (const u of pl.field) {
+		if (u.stoleThisTurn && cid(s, u.uid) === 'delamain-cab') readyEddies(1, 'Delamain Cab')
+		if (u.eotEddies) readyEddies(u.eotEddies, 'Dying Night')
+	}
+	for (const h of [...pl.field, ...pl.legends])
+		if (h.spent && h.gear.some((g) => READY_AT_END_GEAR.has(cid(s, g)))) {
+			h.spent = false
+			log(s, `Sandevistan readies ${'faceUp' in h && !h.faceUp ? 'a face-down Legend' : nameOf(s, h.uid)}.`)
+		}
 	pl.turnsTaken++
-	for (const side of s.players)
+	for (const side of s.players) {
+		side.fightShield = 0
 		for (const u of side.field) {
 			u.lag = false
 			u.attackDespiteLag = false
 			u.powerThisTurn = 0
+			u.stoleThisTurn = false
+			u.eotEddies = 0
 		}
+	}
 	// Overtime begins after two consecutive turns that both started with every Fixer area empty.
 	if (!s.overtime && s.emptyFixerTurns >= 2) {
 		s.overtime = true
@@ -281,6 +377,7 @@ function endTurn(s: GameState, p: PlayerId) {
 
 function canAttack(s: GameState, u: FieldUnit) {
 	if (u.spent) return false
+	if (CANT_ATTACK.has(cid(s, u.uid))) return false
 	if (u.lag && !u.attackDespiteLag && !def(s, u.uid).keywords.includes('adrenaline')) return false
 	return true
 }
@@ -302,6 +399,7 @@ function play(s: GameState, p: PlayerId, uid: number, target: number | undefined
 		const hostLegend = pl.legends.find((l) => l.uid === target)
 		// a face-down Legend stays secret: don't name it in the log
 		log(s, `${pl.name} equips ${nameOf(s, uid)} to ${hostLegend && !hostLegend.faceUp ? 'a face-down Legend' : nameOf(s, target!)}.`)
+		jackie(s, p, uid)
 		return
 	}
 	pay(s, p, cost)
@@ -318,10 +416,24 @@ function play(s: GameState, p: PlayerId, uid: number, target: number | undefined
 			powerPermanent: 0,
 		})
 		log(s, `${pl.name} plays ${nameOf(s, uid)} (${cost} €$).`)
+		fire(s, `${d.id}:play`, uid, p)
+		jackie(s, p, uid)
 	} else {
 		pl.trash.push(uid)
-		log(s, `${pl.name} runs ${nameOf(s, uid)} (${cost} €$)${d.text ? `: “${d.text}”` : ''}`)
+		const scripted = makeTask(s, `${d.id}:program`, uid, p)
+		log(s, `${pl.name} runs ${nameOf(s, uid)} (${cost} €$)${!scripted && d.text ? `: “${d.text}”` : '.'}`)
+		fire(s, `${d.id}:program`, uid, p)
 	}
+}
+
+/** Jackie Welles (face-up Legend): the first Blue Unit or Gear you play each turn. */
+function jackie(s: GameState, p: PlayerId, uid: number) {
+	const pl = s.players[p]
+	if (def(s, uid).color !== 'blue' || pl.usedThisTurn?.includes('jackie')) return
+	const j = pl.legends.find((l) => l.faceUp && cid(s, l.uid) === 'jackie-welles-pour-one-out-for-me')
+	if (!j) return
+	;(pl.usedThisTurn ??= []).push('jackie')
+	fire(s, 'jackie-welles-pour-one-out-for-me:static', j.uid, p)
 }
 
 function attack(s: GameState, p: PlayerId, attacker: number, target: AttackTarget) {
@@ -333,14 +445,24 @@ function attack(s: GameState, p: PlayerId, attacker: number, target: AttackTarge
 		const rival = s.players[other(p)].field.find((x) => x.uid === target.uid)
 		if (!rival) fail('Target must be a rival Unit')
 		if (!rival!.spent) fail('Ready Units cannot be attacked')
-	}
-	u!.spent = true
+	} else if (NO_GIG_ATTACKS.has(cid(s, attacker))) fail('This Unit can only attack rival Units')
+	s.attacking = attacker
 	log(
 		s,
 		`${pl.name}'s ${nameOf(s, attacker)} (${effective(unitPower(s, u!))} power) attacks ${
 			target.kind === 'gigs' ? `${s.players[other(p)].name}'s Gigs` : nameOf(s, target.uid)
 		}.`,
 	)
+	spendCard(s, attacker)
+	fire(s, `${cid(s, attacker)}:attack`, attacker, p)
+	for (const g of u!.gear) fire(s, `${cid(s, g)}:hostAttack`, g, p, { host: attacker })
+	if (def(s, attacker).tags.some((t) => t.toLowerCase() === 'arasaka') && !pl.usedThisTurn?.includes('yorinobu')) {
+		const y = pl.legends.find((l) => l.faceUp && cid(s, l.uid) === 'yorinobu-arasaka-embracing-destruction')
+		if (y) {
+			;(pl.usedThisTurn ??= []).push('yorinobu')
+			fire(s, 'yorinobu-arasaka-embracing-destruction:static', y.uid, p)
+		}
+	}
 	s.pending = { kind: 'react', player: other(p), attack: { attacker, target, redirected: false } }
 }
 
@@ -349,10 +471,11 @@ function block(s: GameState, p: PlayerId, blocker: number) {
 	const pend = s.pending as Extract<GameState['pending'], { kind: 'react' }>
 	const u = s.players[p].field.find((x) => x.uid === blocker)
 	if (!u) fail('Blocker must be your Unit')
-	if (!def(s, blocker).keywords.includes('blocker')) fail('That Unit does not have Blocker')
+	if (!hasBlocker(s, u!)) fail('That Unit does not have Blocker')
 	if (u!.spent) fail('A Blocker must be ready to spend')
 	if (pend.attack.target.kind === 'unit' && pend.attack.target.uid === blocker) fail('That Unit is already the target')
-	u!.spent = true
+	if (unblockable(s, pend.attack.attacker)) fail('That attacker can’t be blocked right now')
+	spendCard(s, blocker)
 	pend.attack.redirected = pend.attack.redirected || pend.attack.target.kind === 'gigs'
 	pend.attack.target = { kind: 'unit', uid: blocker }
 	log(s, `${s.players[p].name} spends ${nameOf(s, blocker)} to block.`)
@@ -364,6 +487,7 @@ function resolveAttack(s: GameState) {
 	const ap = s.active
 	const au = findUnit(s, attacker)
 	s.pending = { kind: 'main', player: ap }
+	s.attacking = null
 	if (!au) {
 		log(s, 'The attacker left the field; the attack ends.')
 		return
@@ -374,30 +498,56 @@ function resolveAttack(s: GameState) {
 			log(s, 'The target left the field; the attack ends.')
 			return
 		}
+		s.attacking = attacker // "while attacking" bonuses still count in the fight
 		const pa = effective(unitPower(s, au))
 		const pd = effective(unitPower(s, du))
+		s.attacking = null
 		log(s, `Fight: ${nameOf(s, attacker)} ${pa} vs ${nameOf(s, target.uid)} ${pd}.`)
 		// A Unit loses with equal or lower power; a 0-power Unit cannot defeat anything (CR 11.4).
-		const attackerLoses = pa <= pd && pd > 0
-		const defenderLoses = pd <= pa && pa > 0
+		let attackerLoses = pa <= pd && pd > 0
+		let defenderLoses = pd <= pa && pa > 0
+		// Reboot Optics: the next rival Unit to fight this turn doesn't defeat the shielded player's Unit.
+		const shield = (owner: PlayerId) => {
+			const pl = s.players[owner]
+			if (!pl.fightShield) return false
+			pl.fightShield--
+			log(s, `Reboot Optics: ${pl.name}'s Unit is not defeated.`)
+			return true
+		}
+		if (defenderLoses && shield(ownerOf(s, target.uid))) defenderLoses = false
+		if (attackerLoses && shield(ap)) attackerLoses = false
 		if (!attackerLoses && !defenderLoses) log(s, 'Neither Unit is defeated.')
-		if (defenderLoses) defeat(s, target.uid)
-		if (attackerLoses) defeat(s, attacker)
+		// Satori: when the host wins a fight against a rival Unit
+		const win = (uid: number, u: FieldUnit) => {
+			for (const g of u.gear) fire(s, `${cid(s, g)}:hostWin`, g, ownerOf(s, g), { host: uid })
+		}
+		if (defenderLoses && !attackerLoses) win(attacker, au)
+		if (attackerLoses && !defenderLoses) win(target.uid, du)
+		if (defenderLoses) defeatUnit(s, target.uid)
+		if (attackerLoses) defeatUnit(s, attacker)
 		if (redirected) log(s, 'The attack was redirected, so no Gigs are stolen.')
 		return
 	}
 	const rival = s.players[other(ap)]
-	const n = Math.min(gigsToSteal(unitPower(s, au)), rival.gigs.length)
+	s.attacking = attacker
+	const pw = effective(unitPower(s, au))
+	s.attacking = null
+	// Chrome Fang: only Gigs worth no more than the attacker's power can be stolen.
+	const maxValue = rival.stealShield ? pw : undefined
+	const eligible = rival.gigs.filter((d) => maxValue === undefined || d.value <= maxValue)
+	if (maxValue !== undefined && eligible.length < rival.gigs.length) log(s, `Chrome Fang: only Gigs worth ${maxValue} or less can be stolen.`)
+	const n = Math.min(gigsToSteal(pw), eligible.length)
 	if (n === 0) {
 		log(s, 'No Gigs are stolen.')
 		return
 	}
-	if (n === rival.gigs.length) {
-		for (const d of rival.gigs.slice()) moveDie(s, d.id, ap)
+	au.stoleThisTurn = true
+	if (n === eligible.length) {
+		for (const d of eligible) moveDie(s, d.id, ap)
 		overtimeCheck(s)
 		return
 	}
-	s.pending = { kind: 'steal', player: ap, remaining: n }
+	s.pending = maxValue === undefined ? { kind: 'steal', player: ap, remaining: n } : { kind: 'steal', player: ap, remaining: n, maxValue }
 }
 
 function moveDie(s: GameState, dieId: string, to: PlayerId) {
@@ -418,10 +568,7 @@ function callLegend(s: GameState, p: PlayerId) {
 	const down = pl.legends.filter((l) => !l.faceUp)
 	const pick = down[rng.int(down.length)]
 	s.rng = rng.seed
-	pick.faceUp = true
-	pl.calledThisTurn = true
-	const d = def(s, pick.uid)
-	log(s, `${pl.name} calls a Legend: ${nameOf(s, pick.uid)}${d.text ? ` — “${d.text}”` : ''}`)
+	flipCalled(s, p, pick)
 }
 
 function goSolo(s: GameState, p: PlayerId, uid: number) {
@@ -540,6 +687,12 @@ function manual(s: GameState, p: PlayerId, m: ManualOp) {
 // ───────────────────────── apply ─────────────────────────
 
 export function apply(prev: GameState, intent: Intent): GameState {
+	const s = applyRaw(prev, intent)
+	settle(s)
+	return s
+}
+
+function applyRaw(prev: GameState, intent: Intent): GameState {
 	const s: GameState = structuredClone(prev)
 	const pend = s.pending
 	if (pend.kind === 'over') fail('The game is over')
@@ -549,11 +702,24 @@ export function apply(prev: GameState, intent: Intent): GameState {
 		return s
 	}
 	if (intent.t === 'manual') {
-		if (pend.kind !== 'main' && pend.kind !== 'react') fail('Table tools are available during play only')
+		if (pend.kind !== 'main' && pend.kind !== 'react' && pend.kind !== 'choose') fail('Table tools are available during play only')
 		manual(s, p, intent.m)
 		return s
 	}
 	if (pend.player !== p) fail(`It is ${s.players[pend.player].name}'s decision`)
+
+	if (pend.kind === 'choose') {
+		if (intent.t !== 'choose') fail('Answer the card’s question first')
+		const q = pend.question
+		const picks = intent.picks
+		if (picks.length < q.min || picks.length > q.max) fail(q.min === q.max ? `Choose ${q.min}` : `Choose ${q.min}–${q.max}`)
+		if (new Set(picks).size !== picks.length || picks.some((id) => !q.options.some((o) => o.id === id))) fail('Not one of the choices')
+		const task = s.queue![0]
+		task.answers.push(picks)
+		s.pending = s.after!
+		return s
+	}
+	if (intent.t === 'choose') fail('Nothing to choose')
 
 	switch (intent.t) {
 		case 'chooseFirst': {
@@ -590,9 +756,12 @@ export function apply(prev: GameState, intent: Intent): GameState {
 			return s
 		case 'steal': {
 			if (pend.kind !== 'steal') fail('Not stealing')
+			if (pend.maxValue !== undefined && (s.players[other(p)].gigs.find((d) => d.id === intent.dieId)?.value ?? 0) > pend.maxValue)
+				fail(`Only Gigs worth ${pend.maxValue} or less can be stolen`)
 			moveDie(s, intent.dieId, p)
 			const left = pend.remaining - 1
-			s.pending = left > 0 && s.players[other(p)].gigs.length > 0 ? { kind: 'steal', player: p, remaining: left } : { kind: 'main', player: p }
+			const more = s.players[other(p)].gigs.some((d) => pend.maxValue === undefined || d.value <= pend.maxValue)
+			s.pending = left > 0 && more ? { ...pend, remaining: left } : { kind: 'main', player: p }
 			overtimeCheck(s)
 			return s
 		}

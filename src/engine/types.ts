@@ -66,6 +66,10 @@ export interface FieldUnit {
 	gear: number[]
 	powerThisTurn: number
 	powerPermanent: number
+	/** stole a Gig this turn (Delamain Cab) */
+	stoleThisTurn?: boolean
+	/** Eddies to ready at the end of this turn (Dying Night on V) */
+	eotEddies?: number
 }
 
 export interface EddieSlot {
@@ -88,6 +92,14 @@ export interface PlayerState {
 	calledThisTurn: boolean
 	mulliganed: boolean
 	turnsTaken: number
+	/** face-down Legends this player has looked at (Kiroshi Optics, T-Bug, Radioport) */
+	knownLegends?: number[]
+	/** once-per-turn ability flags, cleared at the start of each turn */
+	usedThisTurn?: string[]
+	/** Chrome Fang: until this player's next turn, rival Units can't steal friendly Gigs worth more than their power */
+	stealShield?: boolean
+	/** Reboot Optics: the next fight this turn against a rival Unit won't defeat our Unit */
+	fightShield?: number
 }
 
 export type AttackTarget = { kind: 'unit'; uid: number } | { kind: 'gigs' }
@@ -99,13 +111,40 @@ export interface AttackState {
 	redirected: boolean
 }
 
+/** A question an effect asks a player (choose a target, a die, cards…). */
+export interface ChoiceOption {
+	id: string
+	label: string
+	uid?: number
+	dieId?: string
+	/** how good this pick is for the chooser (the computer player uses it) */
+	score?: number
+}
+export interface Question {
+	prompt: string
+	options: ChoiceOption[]
+	min: number
+	max: number
+	/** cards the chooser may see while deciding (e.g. the face-down Legends they just looked at) */
+	reveal?: number[]
+}
+/** A triggered or played effect waiting to resolve. */
+export interface Task {
+	key: string // effect id: `${cardId}:${trigger}`
+	source: number // card uid
+	owner: PlayerId
+	data?: Record<string, unknown>
+	answers: string[][]
+}
+
 export type Pending =
 	| { kind: 'chooseFirst'; player: PlayerId; rolls: [number, number] }
 	| { kind: 'mulligan'; player: PlayerId }
 	| { kind: 'chooseGig'; player: PlayerId }
 	| { kind: 'main'; player: PlayerId }
 	| { kind: 'react'; player: PlayerId; attack: AttackState }
-	| { kind: 'steal'; player: PlayerId; remaining: number }
+	| { kind: 'steal'; player: PlayerId; remaining: number; /** Chrome Fang */ maxValue?: number }
+	| { kind: 'choose'; player: PlayerId; question: Question; task: Task }
 	| { kind: 'over'; winner: PlayerId; reason: string }
 
 export interface GameState {
@@ -122,6 +161,12 @@ export interface GameState {
 	emptyFixerTurns: number
 	pending: Pending
 	log: string[]
+	/** effects waiting to resolve, in order */
+	queue?: Task[]
+	/** where play continues once the queue is empty */
+	after?: Pending | null
+	/** the Unit currently attacking (for "while attacking" effects) */
+	attacking?: number | null
 }
 
 export type ManualOp =
@@ -153,6 +198,7 @@ export type Intent =
 	| { t: 'endTurn'; player: PlayerId }
 	| { t: 'concede'; player: PlayerId }
 	| { t: 'manual'; player: PlayerId; m: ManualOp }
+	| { t: 'choose'; player: PlayerId; picks: string[] }
 
 export interface DeckList {
 	legends: string[] // exactly 3 card ids
