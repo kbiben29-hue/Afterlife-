@@ -28,6 +28,8 @@ export interface BoardProps {
 	onExport: () => void
 	hint?: Hint
 	coach?: ReactNode
+	/** small online-status badge, shown in the top-right corner */
+	netBadge?: ReactNode
 	layout?: 'pocket' | 'console'
 	layoutChoice?: LayoutChoice
 	onLayout?: (c: LayoutChoice) => void
@@ -63,7 +65,7 @@ function DieView({
 	)
 }
 
-export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, onExport, hint, coach, layout = 'console', layoutChoice = 'auto', onLayout }: BoardProps) {
+export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, onExport, hint, coach, netBadge, layout = 'console', layoutChoice = 'auto', onLayout }: BoardProps) {
 	const [sheet, setSheet] = useState<'menu' | 'log' | 'opp' | null>(null)
 	const [sel, setSel] = useState<Sel>(null)
 	const [mode, setMode] = useState<Mode>(null)
@@ -798,7 +800,10 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 				</div>
 			</main>
 			<aside className="right">
-				<div className="menu-row">{menuButtons}</div>
+				<div className="menu-row">
+					{netBadge}
+					{menuButtons}
+				</div>
 				{coach}
 				{tableTools}
 				{statusAndLog}
@@ -842,6 +847,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 						<span className="p-stat">€$ {available(s, rv)}</span>
 						<span className="p-more">›</span>
 					</button>
+					{netBadge}
 					<button className="p-icon p-logbtn" onClick={() => setSheet(sheet === 'log' ? null : 'log')} title="Game log">
 						Log
 					</button>

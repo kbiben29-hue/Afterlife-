@@ -417,10 +417,9 @@ export default function App() {
 					coach={
 						session.tutorial ? (
 							<CoachPanel session={session} step={coachStep} setSession={setSession} onDrill={restartDrill} onLessons={() => (setLessonsOpen(true), setSession(null))} />
-						) : session.online ? (
-							<NetPanel net={net} code={session.online.code} host={session.online.role === 'host'} error={netError} onDismiss={() => setNetError(null)} />
 						) : undefined
 					}
+					netBadge={session.online ? <NetBadge net={net} code={session.online.code} host={session.online.role === 'host'} error={netError} onDismiss={() => setNetError(null)} /> : undefined}
 				/>
 				{handoff !== null && !session.bot && state.pending.kind !== 'over' && (
 					<div className="handoff" onClick={() => setHandoff(null)}>
@@ -544,33 +543,38 @@ function LobbyScreen({ lobby, net, onCancel, onRetry }: { lobby: Lobby; net: { o
 	)
 }
 
-function NetPanel({ net, code, host, error, onDismiss }: { net: { ok: boolean; text: string } | null; code: string; host: boolean; error: string | null; onDismiss: () => void }) {
+/** Online status: a small dot + word in the top-right corner; tap it for the game code and invite link. */
+function NetBadge({ net, code, host, error, onDismiss }: { net: { ok: boolean; text: string } | null; code: string; host: boolean; error: string | null; onDismiss: () => void }) {
+	const [open, setOpen] = useState(false)
 	const [copied, setCopied] = useState(false)
 	return (
-		<div className={`netpanel ${net?.ok ? 'ok' : 'bad'}`}>
-			<div className="coach-tag">
-				ONLINE · {host ? 'you’re hosting' : 'friend is hosting'} · {code}
-			</div>
-			<div className="net-status">
-				<span className="dot" /> {net?.text ?? 'Not connected'}
-			</div>
-			{host && !net?.ok && (
-				<button
-					onClick={async () => {
-						try {
-							await navigator.clipboard.writeText(joinLink(code))
-							setCopied(true)
-						} catch {
-							/* ignore */
-						}
-					}}
-				>
-					{copied ? 'Link copied' : 'Copy invite link again'}
-				</button>
-			)}
-			{error && (
-				<div className="error-inline" onClick={onDismiss}>
-					{error}
+		<div className={`netbadge ${net?.ok ? 'ok' : 'bad'}`}>
+			<button className="nb-pill" onClick={() => setOpen(!open)} title={net?.text ?? 'Not connected'}>
+				<span className="dot" />
+				{net?.ok ? 'Online' : 'Offline'}
+			</button>
+			{(open || error) && (
+				<div className="nb-pop" onClick={() => (onDismiss(), setOpen(false))}>
+					<div>{net?.text ?? 'Not connected'}</div>
+					<div className="dim">
+						{host ? 'You’re hosting' : 'Your friend is hosting'} · game {code}
+					</div>
+					{host && (
+						<button
+							onClick={async (e) => {
+								e.stopPropagation()
+								try {
+									await navigator.clipboard.writeText(joinLink(code))
+									setCopied(true)
+								} catch {
+									/* ignore */
+								}
+							}}
+						>
+							{copied ? 'Link copied' : 'Copy invite link'}
+						</button>
+					)}
+					{error && <div className="error-inline">{error}</div>}
 				</div>
 			)}
 		</div>
