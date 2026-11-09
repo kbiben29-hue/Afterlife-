@@ -47,6 +47,13 @@ export interface CardInstance {
 	owner: PlayerId
 }
 
+/** A temporary effect on a Unit or player. `until`: 'eot' = end of this turn, 'start0'/'start1' = the start of that player's next turn. */
+export interface Mark {
+	k: string
+	until: 'eot' | 'start0' | 'start1'
+	n?: number
+}
+
 export interface LegendSlot {
 	uid: number
 	faceUp: boolean
@@ -70,6 +77,7 @@ export interface FieldUnit {
 	stoleThisTurn?: boolean
 	/** Eddies to ready at the end of this turn (Dying Night on V) */
 	eotEddies?: number
+	marks?: Mark[]
 }
 
 export interface EddieSlot {
@@ -100,6 +108,7 @@ export interface PlayerState {
 	stealShield?: boolean
 	/** Reboot Optics: the next fight this turn against a rival Unit won't defeat our Unit */
 	fightShield?: number
+	marks?: Mark[]
 }
 
 export type AttackTarget = { kind: 'unit'; uid: number } | { kind: 'gigs' }
@@ -143,7 +152,7 @@ export type Pending =
 	| { kind: 'chooseGig'; player: PlayerId }
 	| { kind: 'main'; player: PlayerId }
 	| { kind: 'react'; player: PlayerId; attack: AttackState }
-	| { kind: 'steal'; player: PlayerId; remaining: number; /** Chrome Fang */ maxValue?: number }
+	| { kind: 'steal'; player: PlayerId; remaining: number; /** Chrome Fang */ maxValue?: number; /** Westbrook Netrunner */ minValue?: number; attacker?: number }
 	| { kind: 'choose'; player: PlayerId; question: Question; task: Task }
 	| { kind: 'over'; winner: PlayerId; reason: string }
 
@@ -167,6 +176,10 @@ export interface GameState {
 	after?: Pending | null
 	/** the Unit currently attacking (for "while attacking" effects) */
 	attacking?: number | null
+	/** the two Units in the fight being resolved (for "while fighting" effects) */
+	fighting?: [number, number] | null
+	/** the current attack has stolen at least one Gig */
+	attackStole?: boolean
 }
 
 export type ManualOp =
@@ -199,6 +212,8 @@ export type Intent =
 	| { t: 'concede'; player: PlayerId }
 	| { t: 'manual'; player: PlayerId; m: ManualOp }
 	| { t: 'choose'; player: PlayerId; picks: string[] }
+	/** use a card's activated ability ({Spend} / €$ costs); `ability` indexes the card's ability list */
+	| { t: 'activate'; player: PlayerId; uid: number; ability: number }
 
 export interface DeckList {
 	legends: string[] // exactly 3 card ids

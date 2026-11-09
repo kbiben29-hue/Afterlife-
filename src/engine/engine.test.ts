@@ -122,7 +122,7 @@ test('direct attack steals; attacker chooses when there is a choice', () => {
 	const a = place(s, 0, 'ph-RU10') // power 11 → steals 2
 	s = apply(s, { t: 'attack', player: 0, attacker: a, target: { kind: 'gigs' } })
 	s = apply(s, { t: 'pass', player: 1 })
-	assert.deepEqual(s.pending, { kind: 'steal', player: 0, remaining: 2 })
+	assert.deepEqual(s.pending, { kind: 'steal', player: 0, remaining: 2, attacker: a })
 	s = apply(s, { t: 'steal', player: 0, dieId: '1-d10' })
 	s = apply(s, { t: 'steal', player: 0, dieId: '1-d8' })
 	assert.equal(s.players[0].gigs.length, 3)
@@ -214,14 +214,15 @@ test('games are deterministic for a seed', () => {
 	assert.deepEqual(a, b)
 })
 
-test('equipping a face-down Legend does not reveal it in the log', () => {
+test('Gear can be equipped to a face-up Legend but not a face-down one', () => {
 	let s = started()
 	giveEddies(s, 0, 5)
 	const gearUid = Math.max(...Object.keys(s.instances).map(Number)) + 1
 	s.instances[gearUid] = { uid: gearUid, cardId: 'ph-RG01', owner: 0 }
 	s.players[0].hand.push(gearUid)
 	const legend = s.players[0].legends[2]
+	assert.match(tryApply(s, { t: 'play', player: 0, uid: gearUid, target: legend.uid }).error ?? '', /face-up Legend/)
+	s.players[0].legends[2].faceUp = true
 	s = apply(s, { t: 'play', player: 0, uid: gearUid, target: legend.uid })
-	assert.match(s.log[s.log.length - 1], /to a face-down Legend/)
 	assert.deepEqual(s.players[0].legends[2].gear, [gearUid])
 })

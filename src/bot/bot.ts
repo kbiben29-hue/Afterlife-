@@ -2,7 +2,7 @@
 // enforced keywords. Scripted cards (effects.ts) carry a score on every choice they offer, so it
 // answers their questions and plays scripted Programs; unscripted Programs are sold instead.
 
-import { isScripted } from '../engine/effects'
+import { abilitiesOf, isScripted } from '../engine/effects'
 import { available, def, findUnit, hasBlocker, streetCred, unitPower } from '../engine/engine'
 import { legalIntents } from '../engine/moves'
 import { other, type GameState, type Intent, type PlayerId } from '../engine/types'
@@ -100,7 +100,12 @@ export function chooseIntent(s: GameState): Intent | null {
 		return a
 	}
 	if (pick('callLegend').length && available(s, p) >= 1) return { t: 'callLegend', player: p }
-	return { t: 'endTurn', player: p }
+	const acts = pick('activate').filter((m) => abilitiesOf(s, m.uid)[m.ability]?.bot?.(s, p, m.uid))
+	if (acts.length) return acts[0]
+	if (pick('endTurn').length) return { t: 'endTurn', player: p }
+	// a Unit is forced to attack: do it (Gigs if possible)
+	const forced = pick('attack')
+	return forced.find((m) => m.target.kind === 'gigs') ?? forced[0] ?? moves[0]
 }
 
 /** Is a scripted Program worth casting right now? (avoid wasting removal with no targets) */

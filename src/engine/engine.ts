@@ -3,7 +3,32 @@
 // Card abilities: scripted ones live in effects.ts (triggers queue Tasks, resolved by settle());
 // everything else is applied by players with the manual table tools.
 
-import { BLOCKER_GEAR, CANT_ATTACK, NO_GIG_ATTACKS, READY_AT_END_GEAR, makeTask, runTask, staticPowerBonus, unblockable } from './effects'
+import {
+	abilitiesOf,
+	abilityCost,
+	abilityError,
+	afterFight,
+	afterPlay,
+	attackRestriction,
+	beforeDefeat,
+	callCost,
+	canAttackGigs,
+	canAttackReady,
+	emit,
+	endOfTurn,
+	fightRules,
+	goSoloCost,
+	grantedKeyword,
+	interceptSteal,
+	keywordsOf,
+	lagOk,
+	makeTask,
+	paidFor,
+	playCost,
+	runTask,
+	staticPowerBonus,
+	unblockable,
+} from './effects'
 import { Rng } from './rng'
 import {
 	DIE_SIDES,
@@ -13,6 +38,8 @@ import {
 	type DeckList,
 	type FieldUnit,
 	type GameState,
+	type Keyword,
+	type Mark,
 	type Intent,
 	type LegendSlot,
 	type ManualOp,
@@ -124,7 +151,6 @@ export function unitPower(s: GameState, u: FieldUnit): number {
 	const gear = u.gear.reduce((sum, g) => sum + (def(s, g).power ?? 0), 0)
 	return base + gear + u.powerThisTurn + u.powerPermanent + staticPowerBonus(s, u.uid)
 }
-export const hasBlocker = (s: GameState, u: FieldUnit) => def(s, u.uid).keywords.includes('blocker') || u.gear.some((g) => BLOCKER_GEAR.has(s.instances[g].cardId))
 /** CR 2.10.1: negative values read as 0 for references and comparisons. */
 const effective = (n: number) => Math.max(0, n)
 
@@ -160,7 +186,7 @@ export function paySources(s: GameState, p: PlayerId, exclude?: number): PaySour
 }
 export const available = (s: GameState, p: PlayerId, exclude?: number) => paySources(s, p, exclude).length
 
-function pay(s: GameState, p: PlayerId, amount: number, exclude?: number) {
+export function pay(s: GameState, p: PlayerId, amount: number, exclude?: number) {
 	const src = paySources(s, p, exclude)
 	if (src.length < amount) fail(`Not enough Eddies (need ${amount}, have ${src.length})`)
 	for (const x of src.slice(0, amount)) {
@@ -168,11 +194,46 @@ function pay(s: GameState, p: PlayerId, amount: number, exclude?: number) {
 		else spendCard(s, x.uid)
 	}
 }
+/** Ready up to n spent Eddies. */
+export function readyEddies(s: GameState, p: PlayerId, n: number, why: string) {
+	const pl = s.players[p]
+	const spent = pl.eddies.filter((e) => e.spent).slice(0, n)
+	for (const e of spent) e.spent = false
+	if (spent.length) log(s, `${why}: ${pl.name} readies ${spent.length} Edd${spent.length > 1 ? 'ies' : 'ie'}.`)
+}
+
+// ───────────────────────── marks & keywords ─────────────────────────
+
+type Marked = { marks?: Mark[] }
+export function addMark(t: Marked, k: string, until: Mark['until'], n = 1) {
+	;(t.marks ??= []).push({ k, until, n })
+}
+export const markN = (t: Marked | undefined, k: string) => (t?.marks ?? []).filter((m) => m.k === k).reduce((a, m) => a + (m.n ?? 1), 0)
+export const hasMark = (t: Marked | undefined, k: string) => markN(t, k) > 0
+/** Use up one mark of this kind (e.g. "the next time…"). */
+export function useMark(t: Marked, k: string) {
+	const i = (t.marks ?? []).findIndex((m) => m.k === k)
+	if (i >= 0) t.marks!.splice(i, 1)
+}
+function expireMarks(s: GameState, until: Mark['until']) {
+	for (const pl of s.players) {
+		if (pl.marks) pl.marks = pl.marks.filter((m) => m.until !== until)
+		for (const u of pl.field) if (u.marks) u.marks = u.marks.filter((m) => m.until !== until)
+	}
+}
+
+/** Does this card have the keyword right now? Printed, granted by Gear, by a lasting effect, or conditional. */
+export function hasKw(s: GameState, uid: number, k: Keyword): boolean {
+	if (keywordsOf(s, uid).includes(k)) return true
+	const u = findUnit(s, uid)
+	return !!u && (hasMark(u, `kw:${k}`) || grantedKeyword(s, u, k))
+}
+export const hasBlocker = (s: GameState, u: FieldUnit) => hasKw(s, u.uid, 'blocker')
 
 // ───────────────────────── zones ─────────────────────────
 
 /** Move a field card (and its Gear) out of play. Go Solo Legends are removed from the game. */
-function leaveField(s: GameState, uid: number, to: 'trash' | 'hand') {
+function leaveField(s: GameState, uid: number, to: 'trash' | 'hand' | 'bottom') {
 	const owner = ownerOf(s, uid)
 	const pl = s.players[owner]
 	const i = pl.field.findIndex((u) => u.uid === uid)
@@ -181,7 +242,46 @@ function leaveField(s: GameState, uid: number, to: 'trash' | 'hand') {
 	for (const g of u.gear) s.players[ownerOf(s, g)].trash.push(g)
 	if (u.goSolo) pl.removed.push(uid)
 	else if (to === 'hand') pl.hand.push(uid)
+	else if (to === 'bottom') pl.deck.push(uid)
 	else pl.trash.push(uid)
+}
+/** Return a Unit to its owner's hand (card effect). */
+export function returnToHand(s: GameState, uid: number) {
+	if (!findUnit(s, uid)) return
+	log(s, `${nameOf(s, uid)} returns to its owner's hand.`)
+	leaveField(s, uid, 'hand')
+}
+/** Bottom-deck a Unit (card effect). Not a defeat: no Defeated triggers. */
+export function bottomDeckUnit(s: GameState, uid: number) {
+	if (!findUnit(s, uid)) return
+	log(s, `${nameOf(s, uid)} is put on the bottom of its owner's deck.`)
+	leaveField(s, uid, 'bottom')
+}
+/** Remove a Gear from whatever it is equipped to and put it in its owner's trash. */
+export function defeatGear(s: GameState, g: number) {
+	for (const p of [0, 1] as PlayerId[])
+		for (const h of [...s.players[p].field, ...s.players[p].legends]) {
+			const i = h.gear.indexOf(g)
+			if (i >= 0) {
+				h.gear.splice(i, 1)
+				s.players[ownerOf(s, g)].trash.push(g)
+				log(s, `${nameOf(s, g)} is defeated.`)
+				return
+			}
+		}
+}
+/** Where a Gear is equipped. */
+export function hostOf(s: GameState, g: number): FieldUnit | LegendSlot | undefined {
+	for (const p of [0, 1] as PlayerId[]) for (const h of [...s.players[p].field, ...s.players[p].legends]) if (h.gear.includes(g)) return h
+	return undefined
+}
+/** Trash the top n cards of a deck; returns them. */
+export function trashTop(s: GameState, p: PlayerId, n: number): number[] {
+	const pl = s.players[p]
+	const out = pl.deck.splice(0, n)
+	pl.trash.push(...out)
+	if (out.length) log(s, `${pl.name} trashes the top ${out.length === 1 ? 'card' : `${out.length} cards`} of their deck: ${out.map((u) => nameOf(s, u)).join(', ')}.`)
+	return out
 }
 
 function defeat(s: GameState, uid: number) {
@@ -198,19 +298,30 @@ export function fire(s: GameState, key: string, source: number, owner: PlayerId,
 }
 const cid = (s: GameState, uid: number) => s.instances[uid].cardId
 
-/** Spend a Unit or Legend; Gear on it with "when the host is spent" triggers. */
+/** Spend a Unit or Legend; "when spent" abilities (its Gear, listeners) trigger. */
 export function spendCard(s: GameState, uid: number) {
 	const t = findUnit(s, uid) ?? findLegend(s, uid)
 	if (!t || t.spent) return
 	t.spent = true
 	for (const g of t.gear) fire(s, `${cid(s, g)}:hostSpent`, g, ownerOf(s, g), { host: uid })
+	emit(s, { type: 'spent', uid, owner: ownerOf(s, uid), equipped: t.gear.length > 0, legend: !findUnit(s, uid) })
 }
-/** Defeat by a card effect: Defeated triggers fire. */
+/** Defeat by a card effect or a fight: replacement effects first, then Defeated triggers. */
 export function defeatUnit(s: GameState, uid: number) {
 	if (!findUnit(s, uid)) return
+	if (beforeDefeat(s, uid)) return
+	defeatUnitNow(s, uid)
+}
+/** Defeat without asking replacement effects again (they already declined). */
+export function defeatUnitNow(s: GameState, uid: number) {
+	const u = findUnit(s, uid)
+	if (!u) return
 	const owner = ownerOf(s, uid)
+	const gear = [...u.gear]
 	defeat(s, uid)
 	fire(s, `${cid(s, uid)}:defeated`, uid, owner)
+	for (const g of gear) fire(s, `${cid(s, g)}:hostDefeated`, g, ownerOf(s, g), { host: uid })
+	emit(s, { type: 'defeated', uid, owner, equipped: gear.length > 0 })
 }
 export function drawCards(s: GameState, p: PlayerId, n: number) {
 	for (let i = 0; i < n; i++) if (!draw(s, p)) return
@@ -239,6 +350,45 @@ function flipCalled(s: GameState, p: PlayerId, pick: LegendSlot) {
 }
 export const overtimeCheckPublic = (s: GameState) => overtimeCheck(s)
 
+/** Put a Unit into play for free (from hand, trash or deck). It arrives with Lag like any Unit. */
+export function putUnitInPlay(s: GameState, p: PlayerId, uid: number) {
+	const pl = s.players[p]
+	for (const z of [pl.hand, pl.trash, pl.deck, pl.removed]) {
+		const i = z.indexOf(uid)
+		if (i >= 0) z.splice(i, 1)
+	}
+	pl.field.push({ uid, spent: false, lag: true, attackDespiteLag: false, goSolo: false, gear: [], powerThisTurn: 0, powerPermanent: 0 })
+	log(s, `${pl.name} plays ${nameOf(s, uid)} for free.`)
+	fire(s, `${cid(s, uid)}:play`, uid, p)
+	afterPlay(s, p, uid)
+}
+/** Equip a Gear for free to a friendly Unit or face-up Legend. */
+export function equipFree(s: GameState, p: PlayerId, g: number, host: number) {
+	const pl = s.players[p]
+	for (const z of [pl.hand, pl.trash, pl.deck]) {
+		const i = z.indexOf(g)
+		if (i >= 0) z.splice(i, 1)
+	}
+	const h = pl.field.find((u) => u.uid === host) ?? pl.legends.find((l) => l.uid === host)
+	if (!h) return
+	h.gear.push(g)
+	log(s, `${pl.name} equips ${nameOf(s, g)} to ${nameOf(s, host)} for free.`)
+	afterPlay(s, p, g)
+}
+/** Run a Program for free; it goes to the trash (or the bottom of the deck). */
+export function runProgramFree(s: GameState, p: PlayerId, uid: number, bottom = false) {
+	const pl = s.players[p]
+	for (const z of [pl.hand, pl.trash, pl.deck]) {
+		const i = z.indexOf(uid)
+		if (i >= 0) z.splice(i, 1)
+	}
+	if (bottom) pl.deck.push(uid)
+	else pl.trash.push(uid)
+	log(s, `${pl.name} runs ${nameOf(s, uid)} for free${bottom ? ' (then it goes to the bottom of their deck)' : ''}.`)
+	fire(s, `${cid(s, uid)}:program`, uid, p)
+	afterPlay(s, p, uid)
+}
+
 /** Resolve queued abilities. Stops at the first question; play continues at `after` once empty. */
 function settle(s: GameState) {
 	if (!s.queue?.length) return
@@ -255,6 +405,8 @@ function settle(s: GameState) {
 		const { cards, ...rest } = r.state
 		void cards
 		Object.assign(s, rest)
+		// a task may move play on (a new turn, a steal): continue from there
+		if (s.pending.kind !== 'over') s.after = s.pending
 	}
 	if (s.pending.kind !== 'over') s.pending = s.after!
 	s.after = null
@@ -299,15 +451,17 @@ function startTurn(s: GameState, p: PlayerId) {
 	pl.soldThisTurn = false
 	pl.usedThisTurn = []
 	pl.stealShield = false
-	// Ready step
-	for (const u of pl.field) u.spent = false
+	// Ready step ("can't ready until your next turn" effects expire after it)
+	for (const u of pl.field) if (!hasMark(u, 'noReady')) u.spent = false
 	for (const e of pl.eddies) e.spent = false
 	for (const l of pl.legends) {
 		if (l.skipNextReady) l.skipNextReady = false
 		else l.spent = false
 	}
+	expireMarks(s, `start${p}` as Mark['until'])
 	// Draw step
 	if (!draw(s, p)) return
+	emit(s, { type: 'startTurn', p })
 	// Gig step
 	const choices = legalGigDice(pl)
 	if (choices.length === 0) s.pending = { kind: 'main', player: p }
@@ -332,26 +486,22 @@ function gainGig(s: GameState, p: PlayerId, dieId: string) {
 	pl.gigs.push(die)
 	log(s, `${pl.name} takes the d${die.sides} Gig and rolls ${die.value}.`)
 	s.pending = { kind: 'main', player: p }
+	emit(s, { type: 'roll', p, dieId: die.id, fromFixer: true })
 	overtimeCheck(s)
 }
 
 function endTurn(s: GameState, p: PlayerId) {
 	const pl = s.players[p]
-	// End of turn abilities (none of the starter cards ask a question here).
-	const readyEddies = (n: number, why: string) => {
-		const spent = pl.eddies.filter((e) => e.spent).slice(0, n)
-		for (const e of spent) e.spent = false
-		if (spent.length) log(s, `${why}: ${pl.name} readies ${spent.length} Edd${spent.length > 1 ? 'ies' : 'ie'}.`)
-	}
-	for (const u of pl.field) {
-		if (u.stoleThisTurn && cid(s, u.uid) === 'delamain-cab') readyEddies(1, 'Delamain Cab')
-		if (u.eotEddies) readyEddies(u.eotEddies, 'Dying Night')
-	}
-	for (const h of [...pl.field, ...pl.legends])
-		if (h.spent && h.gear.some((g) => READY_AT_END_GEAR.has(cid(s, g)))) {
-			h.spent = false
-			log(s, `Sandevistan readies ${'faceUp' in h && !h.faceUp ? 'a face-down Legend' : nameOf(s, h.uid)}.`)
-		}
+	const must = mustAttack(s, p)
+	if (must !== undefined) fail(`${nameOf(s, must)} must attack this turn`)
+	// End of turn abilities: simple ones happen now, the rest are queued, then the turn passes.
+	endOfTurn(s, p)
+	if (s.queue?.length) fire(s, 'core:finishTurn', 0, p)
+	else finishTurn(s, p)
+}
+/** After end-of-turn abilities: clean up and start the next player's turn. */
+export function finishTurn(s: GameState, p: PlayerId) {
+	const pl = s.players[p]
 	pl.turnsTaken++
 	for (const side of s.players) {
 		side.fightShield = 0
@@ -363,6 +513,7 @@ function endTurn(s: GameState, p: PlayerId) {
 			u.eotEddies = 0
 		}
 	}
+	expireMarks(s, 'eot')
 	// Overtime begins after two consecutive turns that both started with every Fixer area empty.
 	if (!s.overtime && s.emptyFixerTurns >= 2) {
 		s.overtime = true
@@ -375,34 +526,57 @@ function endTurn(s: GameState, p: PlayerId) {
 
 // ───────────────────────── actions ─────────────────────────
 
-function canAttack(s: GameState, u: FieldUnit) {
-	if (u.spent) return false
-	if (CANT_ATTACK.has(cid(s, u.uid))) return false
-	if (u.lag && !u.attackDespiteLag && !def(s, u.uid).keywords.includes('adrenaline')) return false
-	return true
+/** Why this Unit can't attack this target right now, or null if it can. */
+export function attackError(s: GameState, p: PlayerId, uid: number, target: AttackTarget): string | null {
+	const u = s.players[p].field.find((x) => x.uid === uid)
+	if (!u) return 'That Unit is not on your field'
+	if (u.spent) return 'That Unit is spent'
+	const r = attackRestriction(s, u)
+	if (r) return r
+	let tu: FieldUnit | undefined
+	if (target.kind === 'unit') {
+		tu = s.players[other(p)].field.find((x) => x.uid === target.uid)
+		if (!tu) return 'Target must be a rival Unit'
+		if (!tu.spent && !canAttackReady(s, u, tu)) return 'Ready Units cannot be attacked'
+	} else if (!canAttackGigs(s, u)) return 'This Unit can only attack rival Units'
+	if (u.lag && !u.attackDespiteLag && !hasKw(s, uid, 'adrenaline') && !lagOk(s, u, target, tu)) return 'That Unit has Lag and cannot attack this turn'
+	return null
 }
+/** A Unit that has been forced to attack and still can (the turn can't end yet). */
+export function mustAttack(s: GameState, p: PlayerId): number | undefined {
+	return s.players[p].field.find((u) => hasMark(u, 'mustAttack') && attackTargets(s, p, u.uid).length > 0)?.uid
+}
+/** Every legal attack target for a Unit. */
+export function attackTargets(s: GameState, p: PlayerId, uid: number): AttackTarget[] {
+	const all: AttackTarget[] = [{ kind: 'gigs' }, ...s.players[other(p)].field.map((u): AttackTarget => ({ kind: 'unit', uid: u.uid }))]
+	return all.filter((t) => !attackError(s, p, uid, t))
+}
+
+/** Effective cost to play a card from hand right now. */
+export const costOf = (s: GameState, p: PlayerId, uid: number) => playCost(s, p, uid)
 
 function play(s: GameState, p: PlayerId, uid: number, target: number | undefined, reacting: boolean) {
 	const pl = s.players[p]
 	if (!pl.hand.includes(uid)) fail('That card is not in your hand')
 	const d = def(s, uid)
-	if (reacting && !(d.type === 'program' && d.keywords.includes('quick'))) fail('Only Quick cards can be played as a reaction')
+	if (reacting && !(d.type === 'program' && hasKw(s, uid, 'quick'))) fail('Only Quick cards can be played as a reaction')
 	if (d.type === 'legend') fail('Legends are not played from hand')
-	const cost = d.cost ?? 0
+	const cost = playCost(s, p, uid)
 	if (d.type === 'gear') {
-		if (target === undefined) fail('Choose a friendly Unit or Legend to equip')
-		const host = pl.field.find((u) => u.uid === target) ?? pl.legends.find((l) => l.uid === target)
-		if (!host) fail('Gear must be equipped to a friendly Unit or Legend')
+		if (target === undefined) fail('Choose a friendly Unit or face-up Legend to equip')
+		const host = pl.field.find((u) => u.uid === target) ?? pl.legends.find((l) => l.uid === target && l.faceUp)
+		if (!host) fail('Gear must be equipped to a friendly Unit or face-up Legend')
 		pay(s, p, cost)
+		paidFor(s, p, uid)
 		pl.hand.splice(pl.hand.indexOf(uid), 1)
 		host!.gear.push(uid)
-		const hostLegend = pl.legends.find((l) => l.uid === target)
-		// a face-down Legend stays secret: don't name it in the log
-		log(s, `${pl.name} equips ${nameOf(s, uid)} to ${hostLegend && !hostLegend.faceUp ? 'a face-down Legend' : nameOf(s, target!)}.`)
+		log(s, `${pl.name} equips ${nameOf(s, uid)} to ${nameOf(s, target!)} (${cost} €$).`)
 		jackie(s, p, uid)
+		afterPlay(s, p, uid)
 		return
 	}
 	pay(s, p, cost)
+	paidFor(s, p, uid)
 	pl.hand.splice(pl.hand.indexOf(uid), 1)
 	if (d.type === 'unit') {
 		pl.field.push({
@@ -424,6 +598,7 @@ function play(s: GameState, p: PlayerId, uid: number, target: number | undefined
 		log(s, `${pl.name} runs ${nameOf(s, uid)} (${cost} €$)${!scripted && d.text ? `: “${d.text}”` : '.'}`)
 		fire(s, `${d.id}:program`, uid, p)
 	}
+	afterPlay(s, p, uid)
 }
 
 /** Jackie Welles (face-up Legend): the first Blue Unit or Gear you play each turn. */
@@ -438,24 +613,21 @@ function jackie(s: GameState, p: PlayerId, uid: number) {
 
 function attack(s: GameState, p: PlayerId, attacker: number, target: AttackTarget) {
 	const pl = s.players[p]
-	const u = pl.field.find((x) => x.uid === attacker)
-	if (!u) fail('That Unit is not on your field')
-	if (!canAttack(s, u!)) fail(u!.spent ? 'That Unit is spent' : 'That Unit has Lag and cannot attack this turn')
-	if (target.kind === 'unit') {
-		const rival = s.players[other(p)].field.find((x) => x.uid === target.uid)
-		if (!rival) fail('Target must be a rival Unit')
-		if (!rival!.spent) fail('Ready Units cannot be attacked')
-	} else if (NO_GIG_ATTACKS.has(cid(s, attacker))) fail('This Unit can only attack rival Units')
+	const err = attackError(s, p, attacker, target)
+	if (err) fail(err)
+	const u = pl.field.find((x) => x.uid === attacker)!
+	if (target.kind === 'unit' && !findUnit(s, target.uid)!.spent) useMark(u, 'attackReady')
 	s.attacking = attacker
+	s.attackStole = false
 	log(
 		s,
-		`${pl.name}'s ${nameOf(s, attacker)} (${effective(unitPower(s, u!))} power) attacks ${
+		`${pl.name}'s ${nameOf(s, attacker)} (${effective(unitPower(s, u))} power) attacks ${
 			target.kind === 'gigs' ? `${s.players[other(p)].name}'s Gigs` : nameOf(s, target.uid)
 		}.`,
 	)
 	spendCard(s, attacker)
 	fire(s, `${cid(s, attacker)}:attack`, attacker, p)
-	for (const g of u!.gear) fire(s, `${cid(s, g)}:hostAttack`, g, p, { host: attacker })
+	for (const g of u.gear) fire(s, `${cid(s, g)}:hostAttack`, g, p, { host: attacker })
 	if (def(s, attacker).tags.some((t) => t.toLowerCase() === 'arasaka') && !pl.usedThisTurn?.includes('yorinobu')) {
 		const y = pl.legends.find((l) => l.faceUp && cid(s, l.uid) === 'yorinobu-arasaka-embracing-destruction')
 		if (y) {
@@ -479,6 +651,7 @@ function block(s: GameState, p: PlayerId, blocker: number) {
 	pend.attack.redirected = pend.attack.redirected || pend.attack.target.kind === 'gigs'
 	pend.attack.target = { kind: 'unit', uid: blocker }
 	log(s, `${s.players[p].name} spends ${nameOf(s, blocker)} to block.`)
+	emit(s, { type: 'block', uid: blocker, owner: p })
 }
 
 function resolveAttack(s: GameState) {
@@ -498,33 +671,7 @@ function resolveAttack(s: GameState) {
 			log(s, 'The target left the field; the attack ends.')
 			return
 		}
-		s.attacking = attacker // "while attacking" bonuses still count in the fight
-		const pa = effective(unitPower(s, au))
-		const pd = effective(unitPower(s, du))
-		s.attacking = null
-		log(s, `Fight: ${nameOf(s, attacker)} ${pa} vs ${nameOf(s, target.uid)} ${pd}.`)
-		// A Unit loses with equal or lower power; a 0-power Unit cannot defeat anything (CR 11.4).
-		let attackerLoses = pa <= pd && pd > 0
-		let defenderLoses = pd <= pa && pa > 0
-		// Reboot Optics: the next rival Unit to fight this turn doesn't defeat the shielded player's Unit.
-		const shield = (owner: PlayerId) => {
-			const pl = s.players[owner]
-			if (!pl.fightShield) return false
-			pl.fightShield--
-			log(s, `Reboot Optics: ${pl.name}'s Unit is not defeated.`)
-			return true
-		}
-		if (defenderLoses && shield(ownerOf(s, target.uid))) defenderLoses = false
-		if (attackerLoses && shield(ap)) attackerLoses = false
-		if (!attackerLoses && !defenderLoses) log(s, 'Neither Unit is defeated.')
-		// Satori: when the host wins a fight against a rival Unit
-		const win = (uid: number, u: FieldUnit) => {
-			for (const g of u.gear) fire(s, `${cid(s, g)}:hostWin`, g, ownerOf(s, g), { host: uid })
-		}
-		if (defenderLoses && !attackerLoses) win(attacker, au)
-		if (attackerLoses && !defenderLoses) win(target.uid, du)
-		if (defenderLoses) defeatUnit(s, target.uid)
-		if (attackerLoses) defeatUnit(s, attacker)
+		fight(s, attacker, target.uid)
 		if (redirected) log(s, 'The attack was redirected, so no Gigs are stolen.')
 		return
 	}
@@ -534,20 +681,77 @@ function resolveAttack(s: GameState) {
 	s.attacking = null
 	// Chrome Fang: only Gigs worth no more than the attacker's power can be stolen.
 	const maxValue = rival.stealShield ? pw : undefined
-	const eligible = rival.gigs.filter((d) => maxValue === undefined || d.value <= maxValue)
+	// Westbrook Netrunner: rival Legends can't steal Gigs worth less than their power.
+	const minValue = au.goSolo && hasMark(rival, 'westbrook') ? pw : undefined
+	const eligible = rival.gigs.filter((d) => (maxValue === undefined || d.value <= maxValue) && (minValue === undefined || d.value >= minValue))
 	if (maxValue !== undefined && eligible.length < rival.gigs.length) log(s, `Chrome Fang: only Gigs worth ${maxValue} or less can be stolen.`)
-	const n = Math.min(gigsToSteal(pw), eligible.length)
+	if (minValue !== undefined && eligible.length < rival.gigs.length) log(s, `Westbrook Netrunner: only Gigs worth ${minValue} or more can be stolen.`)
+	const n = Math.max(0, Math.min(gigsToSteal(pw) - markN(au, 'stealLess'), eligible.length))
 	if (n === 0) {
 		log(s, 'No Gigs are stolen.')
 		return
 	}
-	au.stoleThisTurn = true
+	s.pending = { kind: 'steal', player: ap, remaining: n, attacker, ...(maxValue !== undefined ? { maxValue } : {}), ...(minValue !== undefined ? { minValue } : {}) }
 	if (n === eligible.length) {
-		for (const d of eligible) moveDie(s, d.id, ap)
+		for (const d of eligible) stealDie(s, attacker, d.id)
+		s.pending = { kind: 'main', player: ap }
 		overtimeCheck(s)
-		return
 	}
-	s.pending = maxValue === undefined ? { kind: 'steal', player: ap, remaining: n } : { kind: 'steal', player: ap, remaining: n, maxValue }
+}
+
+/** Resolve a fight between two Units (attacker first). */
+export function fight(s: GameState, a: number, d: number) {
+	const au = findUnit(s, a)!
+	const du = findUnit(s, d)!
+	s.fighting = [a, d]
+	if (s.active === ownerOf(s, a)) s.attacking = a
+	const pa = effective(unitPower(s, au))
+	const pd = effective(unitPower(s, du))
+	s.attacking = null
+	s.fighting = null
+	log(s, `Fight: ${nameOf(s, a)} ${pa} vs ${nameOf(s, d)} ${pd}.`)
+	// A Unit loses with equal or lower power; a 0-power Unit cannot defeat anything (CR 11.4).
+	let aLoses = pa <= pd && pd > 0
+	let dLoses = pd <= pa && pa > 0
+	;[aLoses, dLoses] = fightRules(s, a, d, aLoses, dLoses, pa, pd)
+	// Reboot Optics: the next rival Unit to fight this turn doesn't defeat the shielded player's Unit.
+	const shield = (owner: PlayerId) => {
+		const pl = s.players[owner]
+		if (!pl.fightShield) return false
+		pl.fightShield--
+		log(s, `Reboot Optics: ${pl.name}'s Unit is not defeated.`)
+		return true
+	}
+	if (dLoses && shield(ownerOf(s, d))) dLoses = false
+	if (aLoses && shield(ownerOf(s, a))) aLoses = false
+	if (!aLoses && !dLoses) log(s, 'Neither Unit is defeated.')
+	;[aLoses, dLoses] = afterFight(s, a, d, aLoses, dLoses, pa, pd)
+	// Satori: when the host wins a fight against a rival Unit
+	const win = (uid: number, u: FieldUnit) => {
+		for (const g of u.gear) fire(s, `${cid(s, g)}:hostWin`, g, ownerOf(s, g), { host: uid })
+	}
+	if (dLoses && !aLoses) win(a, au)
+	if (aLoses && !dLoses) win(d, du)
+	if (dLoses) defeatUnit(s, d)
+	if (aLoses) defeatUnit(s, a)
+}
+
+/** Move a stolen die (or let a "the Gig isn't stolen" effect step in first). */
+export function stealDie(s: GameState, attacker: number, dieId: string) {
+	if (interceptSteal(s, attacker, dieId)) return
+	stealDieNow(s, attacker, dieId)
+}
+export function stealDieNow(s: GameState, attacker: number, dieId: string) {
+	const to = ownerOf(s, attacker)
+	const d = s.players[other(to)].gigs.find((x) => x.id === dieId)
+	if (!d) return
+	moveDie(s, dieId, to)
+	const au = findUnit(s, attacker)
+	if (au) au.stoleThisTurn = true
+	const first = !s.attackStole
+	s.attackStole = true
+	emit(s, { type: 'steal', uid: attacker, owner: to, dieId, value: d.value, sides: d.sides, first })
+	overtimeCheck(s)
 }
 
 function moveDie(s: GameState, dieId: string, to: PlayerId) {
@@ -563,7 +767,7 @@ function callLegend(s: GameState, p: PlayerId) {
 	const pl = s.players[p]
 	if (pl.calledThisTurn) fail('You already called a Legend this turn')
 	if (!pl.legends.some((l) => !l.faceUp)) fail('No face-down Legends left')
-	pay(s, p, 1)
+	pay(s, p, callCost(s, p))
 	const rng = new Rng(s.rng)
 	const down = pl.legends.filter((l) => !l.faceUp)
 	const pick = down[rng.int(down.length)]
@@ -578,9 +782,10 @@ function goSolo(s: GameState, p: PlayerId, uid: number) {
 	const slot = pl.legends[i]
 	const d = def(s, uid)
 	if (!slot.faceUp) fail('Only a face-up Legend can Go Solo')
-	if (!d.keywords.includes('goSolo')) fail('That Legend does not have Go Solo')
+	if (!hasKw(s, uid, 'goSolo')) fail('That Legend does not have Go Solo')
 	if (d.cost === null) fail('A Legend with a Null cost cannot be played')
-	pay(s, p, d.cost, uid)
+	const cost = goSoloCost(s, p, uid)
+	pay(s, p, cost, uid)
 	pl.legends.splice(i, 1)
 	pl.field.push({
 		uid,
@@ -592,7 +797,22 @@ function goSolo(s: GameState, p: PlayerId, uid: number) {
 		powerThisTurn: 0,
 		powerPermanent: 0,
 	})
-	log(s, `${pl.name}'s ${nameOf(s, uid)} goes solo (${d.cost} €$).`)
+	log(s, `${pl.name}'s ${nameOf(s, uid)} goes solo (${cost} €$).`)
+	fire(s, `${d.id}:play`, uid, p)
+}
+
+/** Use an activated ability ({Spend}, €$ costs). */
+function activate(s: GameState, p: PlayerId, uid: number, index: number, reacting: boolean) {
+	if (ownerOf(s, uid) !== p) fail('That is not your card')
+	const ab = abilitiesOf(s, uid)[index]
+	if (!ab) fail('That card has no such ability')
+	const err = abilityError(s, p, uid, index, reacting)
+	if (err) fail(err)
+	const spendTarget = ab.spend === 'self' ? uid : ab.spend === 'host' ? hostOf(s, uid)!.uid : undefined
+	pay(s, p, abilityCost(s, p, uid, index), spendTarget)
+	log(s, `${s.players[p].name} uses ${nameOf(s, uid)}${ab.label ? `: ${ab.label}` : ''}.`)
+	if (spendTarget !== undefined) spendCard(s, spendTarget)
+	fire(s, ab.key, uid, p, spendTarget !== undefined ? { host: spendTarget } : undefined)
 }
 
 function manual(s: GameState, p: PlayerId, m: ManualOp) {
@@ -756,13 +976,18 @@ function applyRaw(prev: GameState, intent: Intent): GameState {
 			return s
 		case 'steal': {
 			if (pend.kind !== 'steal') fail('Not stealing')
-			if (pend.maxValue !== undefined && (s.players[other(p)].gigs.find((d) => d.id === intent.dieId)?.value ?? 0) > pend.maxValue)
-				fail(`Only Gigs worth ${pend.maxValue} or less can be stolen`)
-			moveDie(s, intent.dieId, p)
+			const die = s.players[other(p)].gigs.find((d) => d.id === intent.dieId)
+			if (!die) fail('That die is not in the rival Gig area')
+			if (pend.maxValue !== undefined && die!.value > pend.maxValue) fail(`Only Gigs worth ${pend.maxValue} or less can be stolen`)
+			if (pend.minValue !== undefined && die!.value < pend.minValue) fail(`Only Gigs worth ${pend.minValue} or more can be stolen`)
+			const ok = (d: { id: string; value: number }) => d.id !== intent.dieId && (pend.maxValue === undefined || d.value <= pend.maxValue) && (pend.minValue === undefined || d.value >= pend.minValue)
 			const left = pend.remaining - 1
-			const more = s.players[other(p)].gigs.some((d) => pend.maxValue === undefined || d.value <= pend.maxValue)
-			s.pending = left > 0 && more ? { ...pend, remaining: left } : { kind: 'main', player: p }
-			overtimeCheck(s)
+			s.pending = left > 0 && s.players[other(p)].gigs.some(ok) ? { ...pend, remaining: left } : { kind: 'main', player: s.active }
+			if (pend.attacker !== undefined && findUnit(s, pend.attacker)) stealDie(s, pend.attacker, intent.dieId)
+			else {
+				moveDie(s, intent.dieId, p)
+				overtimeCheck(s)
+			}
 			return s
 		}
 		case 'callLegend':
@@ -779,6 +1004,10 @@ function applyRaw(prev: GameState, intent: Intent): GameState {
 		case 'pass':
 			if (pend.kind !== 'react') fail('Nothing to pass')
 			resolveAttack(s)
+			return s
+		case 'activate':
+			if (pend.kind !== 'main' && pend.kind !== 'react') fail('You cannot use abilities now')
+			activate(s, p, intent.uid, intent.ability, pend.kind === 'react')
 			return s
 	}
 
@@ -823,14 +1052,15 @@ export function tryApply(s: GameState, i: Intent): { state: GameState; error?: s
 
 // ───────────────────────── queries for the UI ─────────────────────────
 
+/** Units that have at least one legal attack target. */
 export function attackers(s: GameState, p: PlayerId): number[] {
-	return s.players[p].field.filter((u) => canAttack(s, u)).map((u) => u.uid)
+	return s.players[p].field.filter((u) => attackTargets(s, p, u.uid).length > 0).map((u) => u.uid)
 }
 export function canPlay(s: GameState, p: PlayerId, uid: number): boolean {
 	const d = def(s, uid)
 	if (d.type === 'legend') return false
 	const reacting = s.pending.kind === 'react'
-	if (reacting && !(d.type === 'program' && d.keywords.includes('quick'))) return false
-	if (d.type === 'gear' && s.players[p].field.length + s.players[p].legends.length === 0) return false
-	return available(s, p) >= (d.cost ?? 0)
+	if (reacting && !(d.type === 'program' && hasKw(s, uid, 'quick'))) return false
+	if (d.type === 'gear' && s.players[p].field.length + s.players[p].legends.filter((l) => l.faceUp).length === 0) return false
+	return available(s, p) >= playCost(s, p, uid)
 }
