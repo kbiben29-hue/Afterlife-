@@ -7,12 +7,14 @@ import type { Hint } from './coach'
 import { PolyDie, type DieTone } from './Die'
 import { isMuted, setMuted, sfx, soundFor, unlockAudio } from './sfx'
 
+const TURN_LINES = ['You’re up, choom!', 'Your move, choom.', 'Jack in — it’s your turn!', 'Time to make some eddies!', 'Night City’s watching. Go!', 'Wake up, choom — your turn!', 'Preem timing. You’re up!', 'Flatline ’em. Your turn!']
+
 type Sel =
 	| { kind: 'hand'; uid: number }
 	| { kind: 'field'; uid: number }
 	| { kind: 'legend'; uid: number }
 	| { kind: 'die'; id: string }
-	| { kind: 'trash'; owner: PlayerId }
+	| { kind: 'trash'; owner: PlayerId; pick?: number }
 	| { kind: 'gear'; uid: number; host: number }
 	| null
 type Mode = { kind: 'gear'; uid: number } | { kind: 'attack'; attacker: number } | null
@@ -78,6 +80,18 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		if (mode?.kind === 'attack' || mode?.kind === 'gear') return u.length > 1 && u[1] === uid ? 'hint' : u.length === 1 && mode.kind === 'gear' && u[0] === uid ? 'hint' : ''
 		return u[0] === uid && !(hint?.hand?.length) ? 'hint' : ''
 	}
+	// "You're up, choom!" — a big golden banner whenever your turn starts
+	const [banner, setBanner] = useState<{ text: string; n: number } | null>(null)
+	const lastTurn = useRef<{ turn: number; active: PlayerId } | null>(null)
+	useEffect(() => {
+		const prev = lastTurn.current
+		lastTurn.current = { turn: s.turn, active: s.active }
+		if (!prev || s.pending.kind === 'over' || s.turn === prev.turn || s.active !== viewer || s.turn === 0) return
+		const text = TURN_LINES[(s.turn * 7 + s.log.length) % TURN_LINES.length]
+		setBanner({ text, n: s.turn })
+		const t = window.setTimeout(() => setBanner(null), 2200)
+		return () => window.clearTimeout(t)
+	}, [s.turn, s.active, viewer])
 	const logRef = useRef<HTMLDivElement>(null)
 	const deckRef = useRef<HTMLDivElement>(null)
 	const rivalDeckRef = useRef<HTMLDivElement>(null)
@@ -94,7 +108,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 	const pend = s.pending
 	const who = actor(s)
 	const myTurnToAct = who === me
-	const inspect = !sel || sel.kind === 'die' ? null : sel.kind === 'trash' ? (P[sel.owner].trash[P[sel.owner].trash.length - 1] ?? null) : sel.uid
+	const inspect = !sel || sel.kind === 'die' ? null : sel.kind === 'trash' ? (sel.pick ?? P[sel.owner].trash[P[sel.owner].trash.length - 1] ?? null) : sel.uid
 	// A card's question (choose a die, a Unit, cards…) — only the chooser sees the options.
 	const question = pend.kind === 'choose' && myTurnToAct ? pend.question : null
 	const qKey = pend.kind === 'choose' ? `${pend.task.key}:${pend.task.source}:${pend.task.answers.length}:${question?.prompt}` : ''
@@ -677,6 +691,16 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 					<button onClick={onMenu}>Menu</button>
 					{onUndo && <button onClick={onUndo}>Undo</button>}
 					<button onClick={onExport}>Export</button>
+					{pend.kind !== 'over' && (
+						<button
+							className="forfeit"
+							onClick={() => {
+								if (window.confirm('Forfeit this game? Your rival wins.')) act({ t: 'concede', player: me })
+							}}
+						>
+							Forfeit
+						</button>
+					)}
 					<button
 						title={soundOn ? 'Mute sound' : 'Turn sound on'}
 						onClick={() => {
@@ -748,6 +772,20 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 				})()}
 			{inspectHidden && <div className="inspect-text">A face-down Legend. Nobody — not even you — sees it until it’s flipped with Call a Legend (it’s picked at random). You can still spend it as 1 €$.</div>}
 			{inspect !== null && !inspectHidden && def(s, inspect).text && def(s, inspect).image && <div className="inspect-text">{def(s, inspect).text}</div>}
+			{sel?.kind === 'trash' && (
+				<div className="attach-info trash-browser">
+					<div className="zl">
+						{P[sel.owner].name}’s trash ({P[sel.owner].trash.length}) — newest first, tap one to look
+					</div>
+					<div className="trash-grid">
+						{[...P[sel.owner].trash].reverse().map((u) => (
+							<div key={u} className={`attach-mini ${inspect === u ? 'on' : ''}`} title={nameOf(s, u)} onClick={() => setSel({ kind: 'trash', owner: sel.owner, pick: u })}>
+								<CardFace d={def(s, u)} />
+							</div>
+						))}
+					</div>
+				</div>
+			)}
 			{(() => {
 				if (!sel) return null
 				if (sel.kind === 'gear')
@@ -786,10 +824,31 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		</>
 	)
 
+	const bannerEl = banner && (
+		<div className="turn-banner" key={banner.n}>
+			<div className="tb-halo" />
+			<span>{banner.text}</span>
+		</div>
+	)
+
+	// Touch layout: when you must pick a die, bring the glowing dice into view (they may be scrolled off).
+	const wantsDie = myTurnToAct && (pend.kind === 'chooseGig' || pend.kind === 'steal' || (pend.kind === 'choose' && optByDie.size > 0))
+	useEffect(() => {
+		if (layout !== 'pocket' || !wantsDie) return
+		const t = window.setTimeout(() => {
+			const el = document.querySelector('.pocket .die-btn.hot')
+			if (!el) return
+			const r = el.getBoundingClientRect()
+			if (r.top < 70 || r.bottom > window.innerHeight - 160) el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+		}, 250)
+		return () => window.clearTimeout(t)
+	}, [layout, wantsDie, pend.kind, qKey])
+
 	if (layout === 'pocket') return pocket()
 
 	return (
 		<div className="board" onPointerDown={unlockAudio}>
+			{bannerEl}
 			<main className="table">
 				{side(rv, true)}
 				{choicePanel}
@@ -830,6 +889,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		const topTrash = mine.trash[mine.trash.length - 1]
 		return (
 			<div className={`pocket ${s.active === me ? 'my-turn' : ''}`} onPointerDown={unlockAudio}>
+				{bannerEl}
 				<header className="p-top">
 					<button className="p-icon" onClick={() => setSheet(sheet === 'menu' ? null : 'menu')} title="Menu">
 						☰
@@ -980,7 +1040,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 									<div className="zl">Trash ({rivalPl.trash.length}) — newest first</div>
 									<div className="p-trashrow">
 										{[...rivalPl.trash].reverse().slice(0, 12).map((uid) => (
-											<div key={uid} className="attach-mini" onClick={() => (setSheet(null), setSel({ kind: 'trash', owner: rv }))}>
+											<div key={uid} className="attach-mini" onClick={() => (setSheet(null), setSel({ kind: 'trash', owner: rv, pick: uid }))}>
 												<CardFace d={def(s, uid)} />
 											</div>
 										))}

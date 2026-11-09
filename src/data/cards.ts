@@ -16,7 +16,7 @@ export interface CardPool {
 	note?: string
 }
 
-const CACHE = 'afterlife.cards.v1'
+const CACHE = 'afterlife.cards.v2'
 const MAX_AGE = 3 * 24 * 3600 * 1000
 
 type TauriWindow = { __TAURI__?: { core: { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> } } }
@@ -46,6 +46,10 @@ async function fetchLive(): Promise<Record<string, CardDef>> {
 	for (const r of raw) {
 		const c = mapCard(r)
 		c.image = cardImageUrl(c.id)
+		// some cards' image endpoint fails: keep the printings' own render URLs as fallbacks
+		const printings = Array.isArray(r.printings) ? (r.printings as Json[]) : []
+		const alt = [r.image_url, r.source_image_url, ...printings.flatMap((p) => [p.image_url, p.source_image_url])].filter((u): u is string => typeof u === 'string' && /^https:/.test(u))
+		if (alt.length) c.images = [...new Set(alt)]
 		cards[c.id] = c
 	}
 	return cards

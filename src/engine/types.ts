@@ -26,6 +26,8 @@ export interface CardDef {
 	tags: string[]
 	/** local image path, only when the card database has been fetched */
 	image?: string
+	/** other image URLs to try if `image` fails to load (other printings) */
+	images?: string[]
 	placeholder?: boolean
 }
 
