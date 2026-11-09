@@ -2517,3 +2517,58 @@ button[data-off] { opacity: 0.45; filter: saturate(0.4); }
 .pocket .p-top .netbadge { position: absolute; top: 2px; right: 2px; z-index: 6; }
 .pocket .p-top .nb-pill { padding: 3px; gap: 0; font-size: 0; border-width: 1px; }
 .pocket .p-top .nb-pill .dot { width: 9px; height: 9px; }
+
+/* ───── game status / prompt on the side, not across the middle of the table ───── */
+.board .mat.top { height: 323px; }
+.board .mat.bottom { height: 401px; }
+.side-prompt .prompt {
+	flex-direction: column;
+	align-items: stretch;
+	height: auto;
+	min-height: 0;
+	gap: 8px;
+	padding: 8px 10px;
+	background: linear-gradient(180deg, rgba(243, 230, 0, 0.12), transparent);
+}
+.side-prompt .prompt-text { font-size: 16px; line-height: 1.3; flex: none; }
+.side-prompt .prompt-buttons { display: flex; flex-direction: column; gap: 6px; max-width: none; width: 100%; }
+.side-prompt .prompt-buttons button { width: 100%; font-size: 17px; padding: 8px 10px; }
+.side-prompt .error { position: static; margin-top: 4px; }
+
+/* touch layout, phones: the prompt sits just above your hand */
+.pocket .p-side {
+	position: sticky;
+	bottom: calc(var(--hw) * 1.4 + 26px);
+	z-index: 21;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+.pocket .p-side .p-prompt .prompt { background: rgba(14, 13, 8, 0.96); }
+.pocket .p-side .p-prompt .prompt-text { font-size: 14px; }
+.pocket .p-side .p-prompt .prompt-buttons button { min-height: 40px; font-size: 16px; }
+/* touch layout, iPad and wider: a side column beside the table */
+@media (min-width: 900px) {
+	.pocket {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) 300px;
+		column-gap: 14px;
+		align-items: start;
+		max-width: 1500px;
+	}
+	.pocket > * { grid-column: 1; }
+	.pocket > .p-top { grid-column: 1 / -1; }
+	.pocket > .p-side {
+		grid-column: 2;
+		grid-row: 2 / span 6;
+		top: 64px;
+		bottom: auto;
+		align-self: start;
+	}
+	.pocket .p-side .p-prompt .prompt { flex-direction: column; align-items: stretch; }
+	.pocket .p-side .p-prompt .prompt-buttons { flex-direction: column; }
+	.pocket .p-side .p-prompt .prompt-buttons button { width: 100%; }
+	.pocket .p-side .p-prompt .prompt-text { font-size: 16px; }
+}
+.side-prompt .prompt-buttons,
+.pocket .p-side .prompt-buttons { order: 1; }

@@ -792,7 +792,6 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		<div className="board" onPointerDown={unlockAudio}>
 			<main className="table">
 				{side(rv, true)}
-				{promptBar}
 				{choicePanel}
 				{side(me, false)}
 				<div className="hand" ref={handRef} style={{ ['--overlap' as string]: `${Math.min(0, (1150 - P[me].hand.length * 122) / Math.max(1, P[me].hand.length - 1))}px` }}>
@@ -804,6 +803,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 					{netBadge}
 					{menuButtons}
 				</div>
+				<div className="side-prompt">{promptBar}</div>
 				{coach}
 				{tableTools}
 				{statusAndLog}
@@ -871,8 +871,6 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 					)}
 				</section>
 
-				{coach && <div className="p-coach">{coach}</div>}
-				<div className="p-prompt">{promptBar}</div>
 				{choicePanel}
 
 				<section className="p-me">
@@ -921,6 +919,11 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 						</button>
 					</div>
 				</section>
+
+				<aside className="p-side">
+					{coach && <div className="p-coach">{coach}</div>}
+					<div className="p-prompt">{promptBar}</div>
+				</aside>
 
 				<div className="p-hand" ref={handRef}>
 					{handCards}
