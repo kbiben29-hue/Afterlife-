@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { actor, attackError, attackers, hasKw, available, canPlay, costOf, def, gigsToSteal, hasBlocker, legalGigDice, nameOf, streetCred, unitPower } from '../engine/engine'
 import { abilitiesOf, abilityCost, abilityError, attackPower, callCost, goSoloCost, isScripted, unblockable } from '../engine/effects'
 import { other as other_, type Die, type FieldUnit, type GameState, type Intent, type LegendSlot, type PlayerId } from '../engine/types'
@@ -6,6 +7,45 @@ import { CardBack, CardFace } from './Card'
 import type { Hint } from './coach'
 import { PolyDie, type DieTone } from './Die'
 import { isMuted, setMuted, sfx, soundFor, unlockAudio } from './sfx'
+
+interface Flight {
+	id: string
+	uid: number
+	from: DOMRect
+	to: DOMRect
+	faceUp: boolean
+	delay: number
+	/** element to keep hidden until the card lands */
+	hide?: string
+}
+/** A card gliding from one place on screen to another (drawn above everything, in screen coordinates). */
+function FlyingCard({ f, children }: { f: Flight; children: ReactNode }) {
+	const ref = useRef<HTMLDivElement>(null)
+	useLayoutEffect(() => {
+		const el = ref.current
+		if (!el || !el.animate) return
+		const w = f.from.width
+		const h = f.from.height
+		// land at the destination's size, centred on it (a small pile or a big card slot)
+		const scale = Math.min(f.to.width / w, f.to.height / h)
+		const dx = f.to.left + f.to.width / 2 - (f.from.left + w / 2)
+		const dy = f.to.top + f.to.height / 2 - (f.from.top + h / 2)
+		el.animate(
+			[
+				{ transform: 'translate(0,0) scale(1) rotate(0deg)', opacity: 0.2 },
+				{ transform: `translate(${dx * 0.45}px, ${dy * 0.45 - 70}px) scale(${Math.max(1.25, scale * 1.1)}) rotate(-6deg)`, opacity: 1, offset: 0.45 },
+				{ transform: `translate(${dx}px, ${dy}px) scale(${scale}) rotate(0deg)`, opacity: 1, offset: 0.92 },
+				{ transform: `translate(${dx}px, ${dy}px) scale(${scale}) rotate(0deg)`, opacity: 0 },
+			],
+			{ duration: 760, delay: f.delay, easing: 'cubic-bezier(.25,.8,.3,1)', fill: 'both' },
+		)
+	}, [f])
+	return (
+		<div ref={ref} className="flying-card" style={{ left: f.from.left, top: f.from.top, width: f.from.width, height: f.from.height }}>
+			{children}
+		</div>
+	)
+}
 
 const TURN_LINES = ['You’re up, choom!', 'Your move, choom.', 'Jack in — it’s your turn!', 'Time to make some eddies!', 'Night City’s watching. Go!', 'Wake up, choom — your turn!', 'Preem timing. You’re up!', 'Flatline ’em. Your turn!']
 
@@ -236,6 +276,69 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		})
 	}, [s.log.length])
 
+	// Any card leaving a deck flies from that deck to where it went (hand, trash, field, Eddies…).
+	const [flights, setFlights] = useState<Flight[]>([])
+	const prevDecks = useRef<{ decks: [number[], number[]]; viewer: PlayerId } | null>(null)
+	useLayoutEffect(() => {
+		const prev = prevDecks.current
+		prevDecks.current = { decks: [[...P[0].deck], [...P[1].deck]], viewer: me }
+		if (!prev || prev.viewer !== me) return
+		const out: Flight[] = []
+		const rect = (sel: string) => {
+			const el = document.querySelector(sel)
+			if (!el) return null
+			const r = el.getBoundingClientRect()
+			return r.width > 0 && r.height > 0 ? r : null
+		}
+		for (const p of [0, 1] as PlayerId[]) {
+			const now = new Set(P[p].deck)
+			const left = prev.decks[p].filter((u) => !now.has(u))
+			if (!left.length || left.length > 10) continue
+			const from = rect(`[data-pile="deck-${p}"] .pile-card`) ?? rect(`[data-pile="deck-${p}"]`)
+			if (!from) continue
+			left.forEach((uid) => {
+				const pl = P[p]
+				let to: DOMRect | null = null
+				let faceUp = true
+				let hide: string | undefined
+				if (pl.hand.includes(uid)) {
+					// your own new hand cards already fly in from the deck
+					if (p === me && !hideHand) return
+					to = rect(`[data-pile="hand-${p}"]`)
+					faceUp = false
+				} else if (pl.trash.includes(uid)) {
+					to = rect(`[data-pile="trash-${p}"] .pile-card`) ?? rect(`[data-pile="trash-${p}"]`)
+					if (pl.trash[pl.trash.length - 1] === uid) hide = `[data-pile="trash-${p}"] .pile-card`
+				}
+				else if (pl.eddies.some((e) => e.uid === uid)) {
+					to = rect(`[data-pile="eddies-${p}"]`)
+					faceUp = false
+				} else if (pl.field.some((u) => u.uid === uid)) {
+					to = rect(`[data-uid="${uid}"]`)
+					hide = `[data-uid="${uid}"]`
+				}
+				else {
+					const host = [...pl.field, ...pl.legends].find((h) => h.gear.includes(uid))
+					if (host) to = rect(`[data-uid="${host.uid}"]`)
+				}
+				if (to) out.push({ id: `${uid}-${s.log.length}`, uid, from, to, faceUp, delay: out.length * 140, hide })
+			})
+		}
+		if (out.length) {
+			// hide where each card lands until it gets there
+			for (const f of out) {
+				const el = f.hide ? document.querySelector<HTMLElement>(f.hide) : null
+				if (!el) continue
+				el.style.opacity = '0'
+				window.setTimeout(() => (el.style.opacity = ''), f.delay + 700)
+			}
+			setFlights((f) => [...f, ...out])
+			out.forEach((f, i) => window.setTimeout(sfx.draw, f.delay + i))
+			const ids = new Set(out.map((f) => f.id))
+			window.setTimeout(() => setFlights((f) => f.filter((x) => !ids.has(x.id))), 900 + out.length * 140)
+		}
+	}, [s, me])
+
 	// Cards arriving in your hand fly in from your deck.
 	const handUids = P[me].hand
 	const handVisibleNow = !hideHand && pend.kind !== 'chooseFirst'
@@ -340,7 +443,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		const targetable = (mode?.kind === 'attack' && owner === rv && !attackError(s, me, mode.attacker, { kind: 'unit', uid: u.uid })) || (mode?.kind === 'gear' && owner === me)
 		const isAtk = atk && (atk.attacker === u.uid || (atk.target.kind === 'unit' && atk.target.uid === u.uid))
 		return (
-			<div key={u.uid} className={`slot unit ${u.spent ? 'spent' : ''} ${sel?.kind === 'field' && sel.uid === u.uid ? 'sel' : ''} ${targetable ? 'target' : ''} ${canAtk.has(u.uid) ? 'can-attack' : ''} ${isAtk ? 'in-fight' : ''} ${unitHint(u.uid)} ${optCls(optByUid.get(u.uid))}`} onClick={() => clickUnit(u, owner)}>
+			<div key={u.uid} data-uid={u.uid} className={`slot unit ${u.spent ? 'spent' : ''} ${sel?.kind === 'field' && sel.uid === u.uid ? 'sel' : ''} ${targetable ? 'target' : ''} ${canAtk.has(u.uid) ? 'can-attack' : ''} ${isAtk ? 'in-fight' : ''} ${unitHint(u.uid)} ${optCls(optByUid.get(u.uid))}`} onClick={() => clickUnit(u, owner)}>
 				<div className="card">
 					<CardFace d={d} />
 				</div>
@@ -432,7 +535,12 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 					<div className="mat-name">
 						{pl.name}
 						{s.active === p && <span className="turn-dot"> ● turn {pl.turnsTaken + 1}</span>}
-						{p !== me && <span className="hand-n"> · ✋ {pl.hand.length}</span>}
+						{p !== me && (
+							<span className="hand-n" data-pile={`hand-${p}`}>
+								{' '}
+								· ✋ {pl.hand.length}
+							</span>
+						)}
 					</div>
 					{pl.field.length === 0 && <div className="empty">FIELD</div>}
 					{pl.field.map((u) => unitView(u, p))}
@@ -443,7 +551,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 						<div className="zl">Legends</div>
 						<div className="cards">{pl.legends.map((l) => legendView(l, p))}</div>
 					</div>
-					<div className="zone eddies">
+					<div className="zone eddies" data-pile={`eddies-${p}`}>
 						<div className="zl">
 							Eddies <b>{available(s, p)} €$</b>
 							{pl.eddies.length > 0 && (
@@ -463,7 +571,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 				</div>
 
 				<div className="mat-piles">
-					<div className="pile deck" ref={p === me ? deckRef : rivalDeckRef} title="Deck">
+					<div className="pile deck" ref={p === me ? deckRef : rivalDeckRef} data-pile={`deck-${p}`} title="Deck">
 						<div className="zl">Deck</div>
 						<div className="pile-card">
 							{pl.deck.length > 0 ? <CardBack /> : <div className="pile-empty" />}
@@ -471,7 +579,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 							<div className="pile-n">{pl.deck.length}</div>
 						</div>
 					</div>
-					<div className={`pile trash ${sel?.kind === 'trash' && sel.owner === p ? 'sel' : ''}`} onClick={() => topTrash !== undefined && setSel({ kind: 'trash', owner: p })} title="Trash">
+					<div className={`pile trash ${sel?.kind === 'trash' && sel.owner === p ? 'sel' : ''}`} data-pile={`trash-${p}`} onClick={() => topTrash !== undefined && setSel({ kind: 'trash', owner: p })} title="Trash">
 						<div className="zl">Trash</div>
 						<div className="pile-card">
 							{topTrash !== undefined ? <CardFace d={def(s, topTrash)} /> : <div className="pile-empty" />}
@@ -824,6 +932,18 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		</>
 	)
 
+	const flightEl = flights.length
+		? createPortal(
+				<div className="flight-layer">
+					{flights.map((f) => (
+						<FlyingCard key={f.id} f={f}>
+							{f.faceUp ? <CardFace d={def(s, f.uid)} /> : <CardBack />}
+						</FlyingCard>
+					))}
+				</div>,
+				document.body,
+			)
+		: null
 	const bannerEl = banner && (
 		<div className="turn-banner" key={banner.n}>
 			<div className="tb-halo" />
@@ -849,6 +969,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 	return (
 		<div className="board" onPointerDown={unlockAudio}>
 			{bannerEl}
+			{flightEl}
 			<main className="table">
 				{side(rv, true)}
 				{choicePanel}
@@ -890,6 +1011,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		return (
 			<div className={`pocket ${s.active === me ? 'my-turn' : ''}`} onPointerDown={unlockAudio}>
 				{bannerEl}
+				{flightEl}
 				<header className="p-top">
 					<button className="p-icon" onClick={() => setSheet(sheet === 'menu' ? null : 'menu')} title="Menu">
 						☰
@@ -914,6 +1036,22 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 				</header>
 
 				<div className="p-oppgigs">
+					<div className="p-opppiles">
+						<div className="p-minipile" data-pile={`deck-${rv}`} title={`${rivalPl.name}’s deck`}>
+							<div className="pile-card">{rivalPl.deck.length ? <CardBack /> : <div className="pile-empty" />}</div>
+							<b>{rivalPl.deck.length}</b>
+						</div>
+						<button className="p-minipile" data-pile={`trash-${rv}`} disabled={!rivalPl.trash.length} onClick={() => rivalPl.trash.length && setSel({ kind: 'trash', owner: rv })} title={`${rivalPl.name}’s trash`}>
+							<div className="pile-card">{rivalPl.trash.length ? <CardFace d={def(s, rivalPl.trash[rivalPl.trash.length - 1])} /> : <div className="pile-empty" />}</div>
+							<b>{rivalPl.trash.length}</b>
+						</button>
+						<span className="p-minipile mp-hand" data-pile={`hand-${rv}`} title={`${rivalPl.name}’s hand`}>
+							✋ <b>{rivalPl.hand.length}</b>
+						</span>
+						<span className="p-minipile mp-edd" data-pile={`eddies-${rv}`} title={`${rivalPl.name}’s Eddies`}>
+							€$ <b>{available(s, rv)}</b>
+						</span>
+					</div>
 					{rivalPl.gigs.map((d) => (
 						<DieView key={d.id} d={d} tone={d.id.startsWith(`${me}-`) ? 'cyan' : 'pink'} size={34} rolling={rolling.has(d.id)} hot={stealHot || optByDie.has(d.id)} hinted={!!hint?.dice?.includes(d.id)} onClick={() => clickDie(d, rv, 'gigs')} />
 					))}
@@ -964,18 +1102,19 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 
 					<div className="p-row">
 						<div className="p-legends">{mine.legends.map((l) => legendView(l, me))}</div>
-						<div className="p-chip eddies" title="Eddies you can spend">
+						<div className="p-chip eddies" data-pile={`eddies-${me}`} title="Eddies you can spend">
 							<b>{available(s, me)}</b> €$
 							<small>{mine.eddies.length} sold</small>
 						</div>
-						<div className="p-chip deck" ref={deckRef} title="Deck">
+						<div className="p-chip deck" ref={deckRef} data-pile={`deck-${me}`} title="Deck">
 							<div className="pile-card">
 								<CardBack />
 							</div>
 							<b>{mine.deck.length}</b>
 						</div>
-						<button className="p-chip trash" disabled={topTrash === undefined} onClick={() => topTrash !== undefined && setSel({ kind: 'trash', owner: me })} title="Trash">
-							🗑 <b>{mine.trash.length}</b>
+						<button className="p-chip trash" data-pile={`trash-${me}`} disabled={topTrash === undefined} onClick={() => topTrash !== undefined && setSel({ kind: 'trash', owner: me })} title="Trash">
+							<div className="pile-card">{topTrash !== undefined ? <CardFace d={def(s, topTrash)} /> : <div className="pile-empty" />}</div>
+							<b>{mine.trash.length}</b>
 						</button>
 					</div>
 				</section>
