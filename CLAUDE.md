@@ -56,6 +56,16 @@ Sandevistan, Delamain, Jackie/Yorinobu once-per-turn) are hooks in engine.ts. St
 `src/data/starters.ts`; test stand-ins (numbers only, no text): `src/engine/starters.fixture.ts`,
 also used in-app to fill any starter card missing from the loaded pool.
 
+All other cards: `src/engine/set1.ts` — `SET1_HANDLERS`, `ABILITIES` (activated: `{t:'activate'}`
+intent; cost, spend self/host, quick, legal, bot), `LISTENERS` (events emitted by the engine via
+`emit()`: spent, defeated, block, steal, roll, gigChange, program, startTurn), `KEYWORDS`
+(authoritative printed keywords — the DB's keyword detection isn't trusted), `VANILLA`. Lasting
+effects are `marks` on Units/players (`addMark(t, k, 'eot' | 'startN')`). Engine hooks in effects.ts:
+`attackRestriction`, `lagOk`, `canAttackReady`, `playCost`/`paidFor`, `goSoloCost`, `callCost`,
+`beforeDefeat`, `fightRules`/`afterFight`, `interceptSteal`, `endOfTurn` (queued end-of-turn tasks run
+before `core:finishTurn`). Tests: `set1.test.ts`, `set1.fuzz.test.ts` with `set1.fixture.ts`.
+Manual table tools are behind the "Manual fixes" menu switch (localStorage `afterlife.manual`).
+
 Lessons (`src/ui/lessons.ts`): `PLANS` (game-plan pages), `DRILLS` (built with
 `engine/scenario.ts`, `steps()` drive the coach, `success()` ends it; `lessons.test.ts` solves each),
 `COMBOS` (alerts in a coached game). All text is our own wording — never copy card text.
@@ -96,8 +106,8 @@ The workflow fails if `dist/cards` exists, so card data is never published.
 
 ## Not done yet / next steps
 
-1. Script more cards in `src/engine/effects.ts` (both starter decks are done). Add a stand-in to
-   `starters.fixture.ts`-style fixtures and a test per card.
+1. New sets: script new cards in a new `setN.ts` like `set1.ts` (all 152 Welcome to Night City
+   cards are done; Rebecca has no rules text yet), add numbers-only stand-ins to a fixture and tests.
 2. Verify `tools/netdeck.ts` / `tools/fetch-cards.ts` against the live API (written without access to it):
    known endpoints are `api.netdeck.gg/api/cyberpunk/decks/<uuid>` and `api.netdeck.gg/api/cards/cyberpunk/<slug>/image`;
    the card-list endpoint is discovered at run time. Fix `mapCard()` from `vendor/cards/api-raw.json`.

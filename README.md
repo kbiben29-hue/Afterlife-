@@ -14,8 +14,8 @@ layout that is scaled to fit the screen, and every game is saved automatically a
 move by move.
 
 > [!WARNING]
-> **Early test version.** The core rules are enforced and covered by automated tests. Card
-> abilities are automated for every card in the two starter decks; other cards use the table tools.
+> **Early test version.** The core rules are enforced and covered by automated tests, and every
+> card in the database has its abilities automated (Rebecca has no rules text yet).
 
 ## Playing a friend online
 
@@ -66,13 +66,15 @@ Enforced by the rules engine (`src/engine/`):
 - Street Cred, Overtime (after both players' 7th turn, 7 Gigs wins at once), deck building rules
   (3 Legends with different names, 40–50 cards, 3 copies, RAM per colour).
 
-**Card abilities** of every card in the two starter decks run by themselves (`src/engine/effects.ts`):
-Play / Attack / Defeated / Call triggers, Gear that triggers when its Unit attacks or is spent,
-face-up Legend abilities, and lasting effects. When a card needs a decision (which die, which Unit,
-which cards to keep) a box pops up over the table with the choices. Other cards' abilities are shown
-on the card and in the log, and players apply them with the **table tools**: change a Unit's power,
-spend/ready, give Adrenaline, defeat, return to hand, discard, draw, trash the top card, move or
-re-roll a Gig die, flip a Legend.
+**Card abilities** of every card run by themselves (`src/engine/effects.ts`, `src/engine/set1.ts`):
+Play / Attack / Defeated / Call triggers, "when …" abilities (steals, blocks, defeats, spends, dice
+rolls, Gig changes), {Spend} and €$ abilities (tap the card, then its ability button; ⚡ = usable as
+a reaction), lasting effects ("can't attack until your next turn", "must attack"), cost changes,
+"would be defeated" replacements, and keyword rules — a Unit only attacks the turn it's played if it
+really has Adrenaline (or a card says so). When a card needs a decision a box pops up over the
+table with the choices. The old hand-adjustment tools (power ±1, give Adrenaline, defeat, move a
+die…) are hidden behind **Manual fixes** in the menu, for undoing mistakes; they show up by
+themselves only for a card the game doesn't automate.
 
 The computer opponent ("Street AI") plays Units, Gear, Go Solo and attacks sensibly; it answers card
 questions, plays the starter decks' Programs (including Quick tricks on your turn) and sells other

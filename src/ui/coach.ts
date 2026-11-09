@@ -2,7 +2,7 @@
 // the Street AI would make in their place (bot.ts), so it works with any deck and any cards.
 
 import { chooseIntent } from '../bot/bot'
-import { attackPower, isScripted } from '../engine/effects'
+import { abilitiesOf, attackPower, isScripted } from '../engine/effects'
 import { available, def, gigsToSteal, legalGigDice, nameOf, streetCred, unitPower, findUnit } from '../engine/engine'
 import { other, type GameState, type PlayerId } from '../engine/types'
 
@@ -177,7 +177,7 @@ export function coachFor(s: GameState, me: PlayerId, seen: Set<string>): CoachSt
 				return step(
 					'gear',
 					'Equip Gear',
-					`${nameOf(s, sugg.uid)} is Gear: it attaches to one of your Units (or a Legend) and adds +${d.power ?? 0} power to it. Tap it, press Equip, then tap ${sugg.target !== undefined ? nameOf(s, sugg.target) : 'a Unit'}. If that Unit leaves play, the Gear goes with it.`,
+					`${nameOf(s, sugg.uid)} is Gear: it attaches to one of your Units (or a face-up Legend) and adds +${d.power ?? 0} power to it. Tap it, press Equip, then tap ${sugg.target !== undefined ? nameOf(s, sugg.target) : 'a Unit'}. If that Unit leaves play, the Gear goes with it.`,
 					`Equip ${d.name}${sugg.target !== undefined ? ` to ${def(s, sugg.target).name}` : ''}.`,
 					{ hand: [sugg.uid], units: sugg.target !== undefined ? [sugg.target] : [], buttons: ['Equip'] },
 					seen,
@@ -200,6 +200,19 @@ export function coachFor(s: GameState, me: PlayerId, seen: Set<string>): CoachSt
 				{ legends: [sugg.uid], buttons: ['Go Solo'] },
 				seen,
 			)
+		case 'activate': {
+			const ab = abilitiesOf(s, sugg.uid)[sugg.ability]
+			const isLegend = P[me].legends.some((l) => l.uid === sugg.uid)
+			const label = `${ab.label[0].toUpperCase()}${ab.label.slice(1)}`
+			return step(
+				'ability',
+				'Use an ability',
+				`${nameOf(s, sugg.uid)} has an ability you can use now: ${ab.label}.${ab.spend ? ' Using it spends the card (turns it sideways), so it works once per turn.' : ''} Tap ${isLegend ? 'the Legend' : 'the card'}, then press the “${label}” button.`,
+				`Use ${def(s, sugg.uid).name}: ${ab.label}.`,
+				{ ...(isLegend ? { legends: [sugg.uid] } : { units: [sugg.uid] }), buttons: [label] },
+				seen,
+			)
+		}
 		case 'callLegend':
 			return step(
 				'call',

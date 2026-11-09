@@ -2476,3 +2476,6 @@ button.hint {
 .lesson-deck button { text-align: left; display: flex; flex-direction: column; gap: 2px; font-size: 18px; padding: 10px 14px; }
 .lesson-deck button small { font-size: 14px; opacity: 0.75; font-weight: 400; text-transform: none; letter-spacing: 0; }
 @media (max-width: 800px) { .lesson-decks { grid-template-columns: 1fr; } }
+
+/* ability buttons that can't be used right now (tap shows why) */
+button[data-off] { opacity: 0.45; filter: saturate(0.4); }

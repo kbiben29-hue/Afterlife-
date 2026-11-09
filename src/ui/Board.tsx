@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { actor, attackers, available, canPlay, def, gigsToSteal, hasBlocker, legalGigDice, nameOf, streetCred, unitPower } from '../engine/engine'
-import { attackPower, unblockable } from '../engine/effects'
+import { actor, attackError, attackers, hasKw, available, canPlay, costOf, def, gigsToSteal, hasBlocker, legalGigDice, nameOf, streetCred, unitPower } from '../engine/engine'
+import { abilitiesOf, abilityCost, abilityError, attackPower, callCost, goSoloCost, isScripted, unblockable } from '../engine/effects'
 import { other as other_, type Die, type FieldUnit, type GameState, type Intent, type LegendSlot, type PlayerId } from '../engine/types'
 import { CardBack, CardFace } from './Card'
 import type { Hint } from './coach'
@@ -96,6 +96,23 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 	// A card's question (choose a die, a Unit, cards…) — only the chooser sees the options.
 	const question = pend.kind === 'choose' && myTurnToAct ? pend.question : null
 	const qKey = pend.kind === 'choose' ? `${pend.task.key}:${pend.task.source}:${pend.task.answers.length}:${question?.prompt}` : ''
+	// Manual table tools (power ±1, Adrenaline, defeat…) are only for fixing mistakes or cards that
+	// aren't automated: hidden unless switched on in the menu.
+	const [manualOn, setManualOn] = useState(() => {
+		try {
+			return localStorage.getItem('afterlife.manual') === '1'
+		} catch {
+			return false
+		}
+	})
+	const toggleManual = () => {
+		setManualOn(!manualOn)
+		try {
+			localStorage.setItem('afterlife.manual', manualOn ? '0' : '1')
+		} catch {
+			/* ignore */
+		}
+	}
 	const [picks, setPicks] = useState<string[]>([])
 	const [choiceHidden, setChoiceHidden] = useState(false)
 	useEffect(() => {
@@ -304,7 +321,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		const d = def(s, u.uid)
 		const pw = unitPower(s, u)
 		const base = (d.power ?? 0)
-		const targetable = (mode?.kind === 'attack' && owner === rv && u.spent) || (mode?.kind === 'gear' && owner === me)
+		const targetable = (mode?.kind === 'attack' && owner === rv && !attackError(s, me, mode.attacker, { kind: 'unit', uid: u.uid })) || (mode?.kind === 'gear' && owner === me)
 		const isAtk = atk && (atk.attacker === u.uid || (atk.target.kind === 'unit' && atk.target.uid === u.uid))
 		return (
 			<div key={u.uid} className={`slot unit ${u.spent ? 'spent' : ''} ${sel?.kind === 'field' && sel.uid === u.uid ? 'sel' : ''} ${targetable ? 'target' : ''} ${canAtk.has(u.uid) ? 'can-attack' : ''} ${isAtk ? 'in-fight' : ''} ${unitHint(u.uid)} ${optCls(optByUid.get(u.uid))}`} onClick={() => clickUnit(u, owner)}>
@@ -323,7 +340,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		const peek = !l.faceUp && owner === me && peekable.has(l.uid)
 		const visible = l.faceUp || peek
 		return (
-			<div key={l.uid} className={`slot legend ${l.spent ? 'spent' : ''} ${peek ? 'peek' : ''} ${sel?.kind === 'legend' && sel.uid === l.uid ? 'sel' : ''} ${mode?.kind === 'gear' && owner === me ? 'target' : ''} ${hl(hint?.legends, l.uid)} ${optCls(optByUid.get(l.uid))}`} onClick={() => clickLegend(l, owner)}>
+			<div key={l.uid} className={`slot legend ${l.spent ? 'spent' : ''} ${peek ? 'peek' : ''} ${sel?.kind === 'legend' && sel.uid === l.uid ? 'sel' : ''} ${mode?.kind === 'gear' && owner === me && l.faceUp ? 'target' : ''} ${hl(hint?.legends, l.uid)} ${optCls(optByUid.get(l.uid))}`} onClick={() => clickLegend(l, owner)}>
 				<div className="card">{visible ? <CardFace d={d} /> : <CardBack label="LEGEND" />}</div>
 				{peek && <div className="badge peek-b">FACE-DOWN</div>}
 				{attached(l.uid, l.gear)}
@@ -341,7 +358,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		const fixerHot = pend.kind === 'chooseGig' && p === me && myTurnToAct ? new Set(legalGigDice(pl).map((d) => d.id)) : new Set<string>()
 		const stealHot = pend.kind === 'steal' && p === rv && myTurnToAct
 		const other = P[other_(p)]
-		const aiming = mode?.kind === 'attack' && p === me
+		const aiming = mode?.kind === 'attack' && p === me && !attackError(s, me, mode.attacker, { kind: 'gigs' })
 		const attacker = aiming ? P[me].field.find((u) => u.uid === mode!.attacker) : undefined
 		const fixerSlots = DIE_ORDER.map((n) => pl.fixer.find((d) => d.sides === n) ?? null)
 		const topTrash = pl.trash[pl.trash.length - 1]
@@ -478,41 +495,62 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		const au = P[rv].field.find((u) => u.uid === a.attacker)
 		prompt = `${nameOf(s, a.attacker)} (${au ? Math.max(0, unitPower(s, au)) : '?'} power) attacks ${a.target.kind === 'gigs' ? 'your Gigs' : nameOf(s, a.target.uid)}. React: Call a Legend, play a Quick card, or block — then resolve.`
 		buttons.push({ label: 'Resolve attack', onClick: () => act({ t: 'pass', player: me }), primary: true })
-		if (!P[me].calledThisTurn && P[me].legends.some((l) => !l.faceUp)) buttons.push({ label: 'Call a Legend (1 €$)', onClick: () => act({ t: 'callLegend', player: me }) })
+		if (!P[me].calledThisTurn && P[me].legends.some((l) => !l.faceUp)) buttons.push({ label: `Call a Legend (${callCost(s, me)} €$)`, onClick: () => act({ t: 'callLegend', player: me }) })
 		for (const u of P[me].field)
 			if (!u.spent && hasBlocker(s, u) && !unblockable(s, a.attacker)) buttons.push({ label: `Block with ${def(s, u.uid).name}`, onClick: () => act({ t: 'block', player: me, blocker: u.uid }) })
 	} else if (pend.kind === 'main') {
 		prompt =
 			mode?.kind === 'attack'
-				? 'Choose a target: a spent rival Unit, or their Gigs.'
+				? 'Choose a target: a rival Unit it can attack (spent, usually), or their Gigs.'
 				: mode?.kind === 'gear'
-					? 'Choose a friendly Unit or Legend to equip.'
+					? 'Choose a friendly Unit or face-up Legend to equip.'
 					: 'Your move: sell, play, call a Legend, attack — then end your turn.'
 		if (mode) buttons.push({ label: 'Cancel', onClick: () => setMode(null) })
 		else {
 			buttons.push({ label: 'End turn', onClick: () => act({ t: 'endTurn', player: me }), primary: true })
-			if (!P[me].calledThisTurn && P[me].legends.some((l) => !l.faceUp)) buttons.push({ label: 'Call a Legend (1 €$)', onClick: () => act({ t: 'callLegend', player: me }) })
+			if (!P[me].calledThisTurn && P[me].legends.some((l) => !l.faceUp)) buttons.push({ label: `Call a Legend (${callCost(s, me)} €$)`, onClick: () => act({ t: 'callLegend', player: me }) })
 		}
 	}
 
 	// ───── selection actions ─────
 	const tableOpen = pend.kind === 'main' || pend.kind === 'react'
-	const tools: { label: string; onClick: () => void; cls?: string }[] = []
+	const tools: { label: string; onClick: () => void; cls?: string; disabled?: string }[] = []
 	const manual = (m: Extract<Intent, { t: 'manual' }>['m']) => act({ t: 'manual', player: me, m })
+	// manual fixes: shown when switched on, or for a card the game doesn't automate
+	const fixes = (uid?: number) => manualOn || (uid !== undefined && !isScripted(s.instances[uid].cardId))
+	/** The selected card's own abilities ({Spend}, €$): buttons, greyed out with the reason when not usable. */
+	const abilityTools = (uid: number) => {
+		if (s.instances[uid].owner !== me) return
+		abilitiesOf(s, uid).forEach((ab, i) => {
+			const err = myTurnToAct ? abilityError(s, me, uid, i, pend.kind === 'react') : 'Not your decision'
+			const cost = abilityCost(s, me, uid, i)
+			tools.push({
+				label: `${ab.quick ? '⚡ ' : ''}${ab.label[0].toUpperCase()}${ab.label.slice(1)}${cost ? ` (${cost} €$` : ''}${ab.spend ? `${cost ? ', ' : ' ('}spend${ab.spend === 'host' ? ' its Unit' : ''})` : cost ? ')' : ''}`,
+				onClick: () => act({ t: 'activate', player: me, uid, ability: i }),
+				cls: 'primary',
+				disabled: err ?? undefined,
+			})
+		})
+	}
 	if (sel?.kind === 'hand' && myTurnToAct && tableOpen) {
 		const d = def(s, sel.uid)
+		const c = costOf(s, me, sel.uid)
 		if (canPlay(s, me, sel.uid))
 			tools.push({
-				label: d.type === 'gear' ? `Equip (${d.cost} €$)` : `Play (${d.cost} €$)`,
+				label: d.type === 'gear' ? `Equip (${c} €$)` : `Play (${c} €$)`,
 				onClick: () => (d.type === 'gear' ? setMode({ kind: 'gear', uid: sel.uid }) : act({ t: 'play', player: me, uid: sel.uid })),
 				cls: 'primary',
 			})
 		if (pend.kind === 'main' && d.sell && !P[me].soldThisTurn) tools.push({ label: 'Sell for 1 €$', onClick: () => act({ t: 'sell', player: me, uid: sel.uid }) })
-		if (tableOpen) tools.push({ label: 'Discard', onClick: () => manual({ op: 'discard', uid: sel.uid }), cls: 'tool' })
+		if (fixes(sel.uid)) tools.push({ label: 'Discard', onClick: () => manual({ op: 'discard', uid: sel.uid }), cls: 'tool' })
 	}
+	if (sel?.kind === 'gear' && tableOpen) abilityTools(sel.uid)
 	if (sel?.kind === 'field' && tableOpen) {
 		const mine = s.instances[sel.uid].owner === me
 		if (mine && canAtk.has(sel.uid)) tools.push({ label: 'Attack', onClick: () => setMode({ kind: 'attack', attacker: sel.uid }), cls: 'primary' })
+		abilityTools(sel.uid)
+	}
+	if (sel?.kind === 'field' && tableOpen && fixes(sel.uid)) {
 		tools.push({ label: '+1 power', onClick: () => manual({ op: 'power', uid: sel.uid, delta: 1 }), cls: 'tool' })
 		tools.push({ label: '−1 power', onClick: () => manual({ op: 'power', uid: sel.uid, delta: -1 }), cls: 'tool' })
 		tools.push({ label: 'Spend / Ready', onClick: () => manual({ op: 'toggleSpent', uid: sel.uid }), cls: 'tool' })
@@ -524,16 +562,17 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		const l = [...P[0].legends, ...P[1].legends].find((x) => x.uid === sel.uid)!
 		const d = def(s, sel.uid)
 		const mine = s.instances[sel.uid].owner === me
-		if (mine && pend.kind === 'main' && l.faceUp && d.keywords.includes('goSolo') && d.cost !== null)
-			tools.push({ label: `Go Solo (${d.cost} €$)`, onClick: () => act({ t: 'goSolo', player: me, uid: sel.uid }), cls: 'primary' })
-		if (mine) tools.push({ label: 'Spend / Ready (use ability)', onClick: () => manual({ op: 'toggleSpent', uid: sel.uid }), cls: 'tool' })
-		if (mine) tools.push({ label: l.faceUp ? 'Turn face-down' : 'Flip face-up', onClick: () => manual({ op: 'flipLegend', uid: sel.uid }), cls: 'tool' })
+		if (mine && pend.kind === 'main' && l.faceUp && hasKw(s, sel.uid, 'goSolo') && d.cost !== null)
+			tools.push({ label: `Go Solo (${goSoloCost(s, me, sel.uid)} €$)`, onClick: () => act({ t: 'goSolo', player: me, uid: sel.uid }), cls: 'primary' })
+		if (l.faceUp) abilityTools(sel.uid)
+		if (mine && fixes(l.faceUp ? sel.uid : undefined)) tools.push({ label: 'Spend / Ready', onClick: () => manual({ op: 'toggleSpent', uid: sel.uid }), cls: 'tool' })
+		if (mine && fixes(l.faceUp ? sel.uid : undefined)) tools.push({ label: l.faceUp ? 'Turn face-down' : 'Flip face-up', onClick: () => manual({ op: 'flipLegend', uid: sel.uid }), cls: 'tool' })
 	}
-	if (sel?.kind === 'die' && tableOpen) {
+	if (sel?.kind === 'die' && tableOpen && manualOn) {
 		tools.push({ label: 'Move to other player', onClick: () => manual({ op: 'moveDie', dieId: sel.id }), cls: 'tool' })
 		tools.push({ label: 'Re-roll', onClick: () => manual({ op: 'reroll', dieId: sel.id }), cls: 'tool' })
 	}
-	const sideTools = tableOpen && myTurnToAct
+	const sideTools = tableOpen && myTurnToAct && manualOn
 	const handVisible = !hideHand && pend.kind !== 'chooseFirst'
 
 	// ───── pieces shared by both layouts ─────
@@ -646,6 +685,9 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 					>
 						{soundOn ? '🔊' : '🔇'}
 					</button>
+			<button className={manualOn ? 'on' : ''} title="Show manual table tools for fixing mistakes or cards that aren't automated" onClick={toggleManual}>
+				{manualOn ? 'Manual fixes: on' : 'Manual fixes: off'}
+			</button>
 			{onLayout && (
 				<select className="layout-pick" value={layoutChoice} onChange={(e) => onLayout(e.target.value as LayoutChoice)} title="Layout on this device">
 					<option value="auto">Layout: Auto</option>
@@ -673,7 +715,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 					<div>
 						{P[0].name} {P[0].gigs.length} Gigs · {P[1].name} {P[1].gigs.length} Gigs
 					</div>
-					{bot && <div className="dim">Computer: uses the abilities of automated cards (both starter decks); other card text is up to you.</div>}
+					{bot && <div className="dim">Card abilities run automatically. Turn on “Manual fixes” in the menu to adjust things by hand.</div>}
 				</div>
 				<div className="log" ref={logRef}>
 					{s.log.map((l, i) => (
@@ -734,7 +776,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 			})()}
 			<div className="tools">
 				{tools.map((t) => (
-					<button key={t.label} className={`${t.cls ?? ''} ${hinted(t.label) ? 'hint' : ''}`} onClick={t.onClick}>
+					<button key={t.label} className={`${t.cls ?? ''} ${hinted(t.label) ? 'hint' : ''}`} onClick={t.disabled ? () => setError(t.disabled!) : t.onClick} title={t.disabled} aria-disabled={!!t.disabled} data-off={t.disabled ? 1 : undefined}>
 						{t.label}
 					</button>
 				))}
@@ -777,7 +819,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		const rivalPl = P[rv]
 		const mine = P[me]
 		const aiming = mode?.kind === 'attack'
-		const attacker = aiming ? mine.field.find((u) => u.uid === mode!.attacker) : undefined
+		const attacker = aiming && !attackError(s, me, mode!.attacker, { kind: 'gigs' }) ? mine.field.find((u) => u.uid === mode!.attacker) : undefined
 		const fixerHot = pend.kind === 'chooseGig' && myTurnToAct ? new Set(legalGigDice(mine).map((d) => d.id)) : new Set<string>()
 		const stealHot = pend.kind === 'steal' && myTurnToAct
 		const topTrash = mine.trash[mine.trash.length - 1]
