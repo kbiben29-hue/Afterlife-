@@ -43,6 +43,12 @@ The choice (Auto / Touch / Table) is in the menu, stored in localStorage `afterl
 Shared pieces are built once in Board (`promptBar`, `handCards`, `menuButtons`, `tableTools`,
 `statusAndLog`, `viewerContent`); `pocket()` lays them out.
 
+The home screen (`Setup.tsx`), lobby and loading screen are a normal scrolling page (`.page-root`)
+on every device, styled like a dark esports site: Rajdhani (UI) + Teko (display) from Google Fonts,
+angular clipped buttons, mode tabs (A friend / Computer / Hotseat / Learn), deck cards with the three
+Legends' art and RAM badges, a mobile bottom nav. Ideas for multiplayer features from a reference
+site: `docs/multiplayer-notes.md`.
+
 ## Card abilities (effects.ts)
 
 Scripts are keyed `${cardId}:${trigger}` (play, attack, defeated, call, program, hostAttack,

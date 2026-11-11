@@ -433,6 +433,8 @@ export default function App() {
 		)
 
 	if (pocket && session && state && !lobby) return <div className="pocket-root">{body}</div>
+	// home screen, lobby and loading are ordinary scrolling pages on every device
+	if (!session || !state || lobby) return <div className="page-root">{body}</div>
 
 	return (
 		<div className="viewport">
