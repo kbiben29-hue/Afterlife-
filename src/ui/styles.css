@@ -3235,3 +3235,37 @@ button.big-start {
 	.wordmark { font-size: 28px; }
 	.src-pill { font-size: 13px; padding: 5px 10px; }
 }
+
+/* ───── computer difficulty ───── */
+.panel > .levels { margin: 20px 22px 0; display: flex; flex-direction: column; gap: 8px; }
+.level-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+button.level {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 4px;
+	padding: 12px 14px;
+	background: #0c0d14;
+	border: 2px solid #2e3040;
+	text-align: left;
+}
+button.level b { font-size: 22px; color: #fff; }
+button.level small { font-size: 14px; font-weight: 500; color: var(--dim); line-height: 1.2; }
+button.level.on { border-color: var(--cyan); background: linear-gradient(180deg, rgba(25, 227, 240, 0.06), rgba(25, 227, 240, 0.16)); }
+button.level.on b { color: var(--cyan); }
+button.level.expert.on { border-color: var(--pink); background: linear-gradient(180deg, rgba(255, 42, 109, 0.06), rgba(255, 42, 109, 0.16)); }
+button.level.expert.on b { color: var(--pink); }
+.lv-pips { display: flex; gap: 4px; }
+.lv-pips i { width: 16px; height: 6px; background: #2e3040; transform: skewX(-20deg); }
+.lv-pips i.f { background: currentColor; }
+button.level { color: var(--cyan); }
+button.level.easy { color: var(--green); }
+button.level.expert { color: var(--pink); }
+.pl-fixed { font-size: 22px; font-weight: 700; color: #fff; }
+@media (max-width: 640px) {
+	.panel > .levels { margin: 16px 14px 0; }
+	.level-row { gap: 6px; }
+	button.level { padding: 10px 8px; }
+	button.level b { font-size: 16px; }
+	button.level small { font-size: 12px; }
+}

@@ -1,5 +1,5 @@
 // Tutorial coach: looks at the position, explains the step the player is on, and points at the move
-// the Street AI would make in their place (bot.ts), so it works with any deck and any cards.
+// the Street Samurai would make in their place (bot.ts), so it works with any deck and any cards.
 
 import { chooseIntent } from '../bot/bot'
 import { abilitiesOf, attackPower, isScripted } from '../engine/effects'
@@ -26,7 +26,7 @@ export interface CoachStep {
 export const INTRO: { title: string; body: string }[] = [
 	{
 		title: 'Welcome to Night City',
-		body: 'This practice game walks you through a real match against the Street AI. Watch this panel: it explains each step, and whatever glows yellow on the table is a good move to make next. You can still do anything you like — the coach just suggests.',
+		body: 'This practice game walks you through a real match against the Street Samurai. Watch this panel: it explains each step, and whatever glows yellow on the table is a good move to make next. You can still do anything you like — the coach just suggests.',
 	},
 	{
 		title: 'How you win',
@@ -55,7 +55,7 @@ export function coachFor(s: GameState, me: PlayerId, seen: Set<string>): CoachSt
 		const won = pend.winner === me
 		return step(
 			'over',
-			won ? 'You win!' : 'The Street AI wins this one',
+			won ? 'You win!' : 'The Street Samurai wins this one',
 			`${won ? 'Nicely done.' : 'Good practice.'} ${pend.reason[0].toUpperCase()}${pend.reason.slice(1)}. Things to try next game: sell a card every turn, keep a Blocker ready when your Gigs are at risk, and attack spent rival Units you can beat. Press New game to play again — the tutorial can be switched off on the setup screen.`,
 			'Press New game to play again.',
 			{ buttons: ['New game'] },
@@ -63,7 +63,7 @@ export function coachFor(s: GameState, me: PlayerId, seen: Set<string>): CoachSt
 		)
 	}
 	if (pend.player !== me) {
-		const msg = pend.kind === 'react' ? 'Your rival is deciding how to react.' : 'The Street AI is taking its turn. Watch the log on the right to see what it does.'
+		const msg = pend.kind === 'react' ? 'Your rival is deciding how to react.' : 'The Street Samurai is taking its turn. Watch the log on the right to see what it does.'
 		return { key: 'wait', title: 'Rival’s move', body: msg, hint: {} }
 	}
 
@@ -155,7 +155,7 @@ export function coachFor(s: GameState, me: PlayerId, seen: Set<string>): CoachSt
 		return step(
 			'end',
 			'End your turn',
-			`Nothing else worth doing this turn${avail ? ` (you have ${avail} €⁠$ left — unspent Eddies come back next turn anyway)` : ''}. ${why} Press End turn and the Street AI will play.`,
+			`Nothing else worth doing this turn${avail ? ` (you have ${avail} €⁠$ left — unspent Eddies come back next turn anyway)` : ''}. ${why} Press End turn and the Street Samurai will play.`,
 			'Press End turn.',
 			{ buttons: ['End turn'] },
 			seen,

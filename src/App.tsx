@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { actor, newGame, tryApply } from './engine/engine'
 import type { GameState, Intent, PlayerId } from './engine/types'
-import { chooseIntent } from './bot/bot'
+import { botIntent, type BotLevel } from './bot/bot'
 import { loadCards, type CardPool } from './data/cards'
 import { Board, type LayoutChoice } from './ui/Board'
 import { Setup, type SetupResult } from './ui/Setup'
@@ -20,6 +20,8 @@ const SAVE = 'afterlife.save.v1'
 interface Session {
 	history: GameState[]
 	bot: boolean
+	/** computer difficulty (default hard) */
+	level?: BotLevel
 	tutorial?: {
 		intro: number // index into INTRO; INTRO.length = intro finished
 		seen: string[] // coach steps already explained in full
@@ -298,7 +300,7 @@ export default function App() {
 		if (session.tutorial?.drill && state.active !== 0) return
 		botTimer.current = window.setTimeout(
 			() => {
-				const i = chooseIntent(state)
+				const i = botIntent(state, session.level ?? 'hard')
 				if (i) send(i)
 			},
 			session.tutorial ? 1100 : 550,
@@ -332,7 +334,7 @@ export default function App() {
 		// tutorial: make sure the player wins the roll, so they get to choose and learn that step
 		for (let k = 1; r.tutorial && g.pending.kind === 'chooseFirst' && g.pending.player !== 0 && k < 50; k++)
 			g = newGame({ seed: r.seed + k, cards, decks: r.decks, names: r.names })
-		setSession({ history: [g], bot: r.bot, tutorial: r.tutorial ? { intro: 0, seen: [], note: null, ...(r.lesson ? { deck: r.lesson.deck } : {}) } : undefined })
+		setSession({ history: [g], bot: r.bot, level: r.level, tutorial: r.tutorial ? { intro: 0, seen: [], note: null, ...(r.lesson ? { deck: r.lesson.deck } : {}) } : undefined })
 		setViewer(0)
 		setHandoff(null)
 	}

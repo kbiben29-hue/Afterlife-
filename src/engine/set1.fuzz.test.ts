@@ -6,7 +6,7 @@ import { apply, newGame } from './engine'
 import { randomDeck } from './decks'
 import { legalIntents } from './moves'
 import { Rng } from './rng'
-import { chooseIntent } from '../bot/bot'
+import { botIntent, chooseIntent } from '../bot/bot'
 import type { GameState } from './types'
 
 // Rebecca has no rules yet in the database
@@ -49,4 +49,18 @@ test('full card pool: bot vs bot games finish', () => {
 		}
 		assert.equal(s.pending.kind, 'over', `game ${g} did not finish: ${s.log.slice(-5).join(' | ')}`)
 	}
+})
+
+test('every computer level plays legal moves to the end of the game', () => {
+	for (const level of ['easy', 'expert'] as const)
+		for (let g = 1; g <= 4; g++) {
+			let s: GameState = game(g + 900)
+			let steps = 0
+			while (s.pending.kind !== 'over' && steps < 4000) {
+				const i = botIntent(s, (s.pending as { player: number }).player === 0 ? level : 'hard')!
+				s = apply(s, i)
+				steps++
+			}
+			assert.equal(s.pending.kind, 'over', `${level} game ${g} did not finish`)
+		}
 })

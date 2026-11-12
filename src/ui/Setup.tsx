@@ -9,6 +9,7 @@ import { starterDeck, STARTERS } from '../data/starters'
 import { drillsFor, type DeckId } from './lessons'
 import { CardFace } from './Card'
 import { STARTER_FIXTURE } from '../engine/starters.fixture'
+import { BOT_LEVELS, type BotLevel } from '../bot/bot'
 
 export interface SetupResult {
 	names: [string, string]
@@ -17,6 +18,8 @@ export interface SetupResult {
 	/** deck lessons: a coached game with a starter deck, or one combo drill */
 	lesson?: { deck: DeckId; drill?: string }
 	online?: 'host' | 'guest'
+	/** computer difficulty */
+	level?: BotLevel
 	decks: [DeckList, DeckList]
 	seed: number
 }
@@ -194,7 +197,24 @@ export function Setup({
 	resumeLabel?: string
 }) {
 	const [tab, setTab] = useState<Tab>(initialLessons ? 'learn' : joinCode ? 'friend' : 'bot')
-	const [names, setNames] = useState<[string, string]>([joinCode ? 'Player 2' : 'Player 1', 'Street AI'])
+	const [level, setLevelState] = useState<BotLevel>(() => {
+		try {
+			const v = localStorage.getItem('afterlife.botLevel')
+			return v === 'easy' || v === 'expert' ? v : 'hard'
+		} catch {
+			return 'hard'
+		}
+	})
+	const botName = BOT_LEVELS.find((l) => l.id === level)!.name
+	const setLevel = (l: BotLevel) => {
+		setLevelState(l)
+		try {
+			localStorage.setItem('afterlife.botLevel', l)
+		} catch {
+			/* ignore */
+		}
+	}
+	const [names, setNames] = useState<[string, string]>([joinCode ? 'Player 2' : 'Player 1', 'Player 2'])
 	const [decks, setDecks] = useState<[DeckMode, DeckMode]>([
 		{ mode: 'starter', id: 'power' },
 		{ mode: 'starter', id: 'heist' },
@@ -208,7 +228,7 @@ export function Setup({
 	const newSeed = () => (Date.now() ^ Math.floor(Math.random() * 1e9)) >>> 0
 	const startLesson = (deck: DeckId, drill?: string) => {
 		const other: DeckId = deck === 'heist' ? 'power' : 'heist'
-		onStart({ names: [names[0] || 'You', 'Street AI'], bot: true, tutorial: true, lesson: { deck, drill }, decks: [starterDeck(deck), starterDeck(other)], seed: newSeed() })
+		onStart({ names: [names[0] || 'You', 'Street Samurai'], bot: true, tutorial: true, lesson: { deck, drill }, decks: [starterDeck(deck), starterDeck(other)], seed: newSeed() })
 	}
 	const start = (tutorial = false) => {
 		const seed = newSeed()
@@ -216,15 +236,14 @@ export function Setup({
 		const d1 = build(decks[1], seed + 2)
 		if (!d0 || !d1) return
 		if (joinCode) onStart({ names: [names[0] || 'Player 2', ''], bot: false, online: 'guest', decks: [d0, d0], seed })
-		else if (tutorial) onStart({ names: [names[0] || 'You', 'Street AI'], bot: true, tutorial: true, decks: [d0, d1], seed })
+		else if (tutorial) onStart({ names: [names[0] || 'You', 'Street Samurai'], bot: true, tutorial: true, decks: [d0, d1], seed })
 		else if (tab === 'friend') onStart({ names: [names[0] || 'Player 1', ''], bot: false, online: 'host', decks: [d0, d0], seed })
 		else if (tab === 'hotseat') onStart({ names: [names[0] || 'Player 1', names[1] || 'Player 2'], bot: false, decks: [d0, d1], seed })
-		else onStart({ names: [names[0] || 'Player 1', 'Street AI'], bot: true, decks: [d0, d1], seed })
+		else onStart({ names: [names[0] || 'Player 1', botName], bot: true, level, decks: [d0, d1], seed })
 	}
 	const setTabAnd = (t: Tab) => {
 		setTab(t)
-		if (t === 'hotseat' && names[1] === 'Street AI') setNames([names[0], 'Player 2'])
-		if (t === 'bot') setNames([names[0], 'Street AI'])
+
 	}
 
 	const cardCount = Object.keys(pool.cards).length
@@ -239,15 +258,15 @@ export function Setup({
 			]
 	const DESC: Record<Tab, string> = {
 		friend: joinCode ? 'You’ve been invited. Pick a name and deck, then join.' : 'Send a link — your friend plays from their own phone or computer.',
-		bot: 'Play the Street AI. Every card’s abilities run by themselves.',
+		bot: 'Play the computer at three levels. Every card’s abilities run by themselves.',
 		hotseat: 'Two players, one screen. Pass the device between turns.',
 		learn: 'Learn the two starter decks: a coached game and combo drills for each.',
 	}
-	const playerBlock = (i: 0 | 1, label: string) => (
+	const playerBlock = (i: 0 | 1, label: string, fixedName?: string) => (
 		<div className="pl-block" key={i}>
 			<div className="pl-head">
 				<span className="eyebrow">{label}</span>
-				<input value={names[i]} onChange={(e) => setNames(i === 0 ? [e.target.value, names[1]] : [names[0], e.target.value])} aria-label={`${label} name`} />
+				{fixedName ? <span className="pl-fixed">{fixedName}</span> : <input value={names[i]} onChange={(e) => setNames(i === 0 ? [e.target.value, names[1]] : [names[0], e.target.value])} aria-label={`${label} name`} />}
 			</div>
 			<DeckPicker pool={pool} value={decks[i]} onChange={(v) => setDecks(i === 0 ? [v, decks[1]] : [decks[0], v])} />
 		</div>
@@ -310,7 +329,7 @@ export function Setup({
 							<Icon name="cap" />
 							<div>
 								<b>Never played? Start here.</b>
-								<p>A guided practice game against the Street AI. The coach explains every step and makes the next good move glow.</p>
+								<p>A guided practice game against the Street Samurai. The coach explains every step and makes the next good move glow.</p>
 							</div>
 							<button onClick={() => start(true)}>Play the tutorial</button>
 						</div>
@@ -356,10 +375,24 @@ export function Setup({
 								<button onClick={() => start(true)}>Play the tutorial</button>
 							</div>
 						)}
+						{tab === 'bot' && (
+							<div className="levels">
+								<div className="eyebrow">Difficulty</div>
+								<div className="level-row">
+									{BOT_LEVELS.map((l, i) => (
+										<button key={l.id} className={`level ${l.id} ${level === l.id ? 'on' : ''}`} onClick={() => setLevel(l.id)}>
+											<span className="lv-pips">{[0, 1, 2].map((k) => <i key={k} className={k <= i ? 'f' : ''} />)}</span>
+											<b>{l.name}</b>
+											<small>{l.blurb}</small>
+										</button>
+									))}
+								</div>
+							</div>
+						)}
 						<div className="players-grid">
 							{playerBlock(0, tab === 'friend' ? 'You' : 'Player 1')}
 							{tab === 'hotseat' && playerBlock(1, 'Player 2')}
-							{tab === 'bot' && playerBlock(1, 'Street AI')}
+							{tab === 'bot' && playerBlock(1, 'Computer', botName)}
 						</div>
 						<p className="fine">{tab === 'friend' ? 'Your friend picks their own deck when they open the link.' : tab === 'hotseat' ? 'A second player on this device.' : 'The computer uses the deck you pick for it.'}</p>
 						<button className="primary big-start" onClick={() => start()}>

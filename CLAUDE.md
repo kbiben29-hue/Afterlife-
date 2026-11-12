@@ -26,7 +26,7 @@ npm run typecheck           # tsc -b (needs npm install for the React types)
 - `src/engine/moves.ts` — `legalIntents(state)`; used by the bot and the fuzz test.
 - `src/engine/decks.ts` — deck validation (3 Legends, 40–50, 3 copies, RAM per colour), random decks,
   deck-list parsing.
-- `src/bot/bot.ts` — greedy "Street AI".
+- `src/bot/bot.ts` — computer levels via `botIntent(s, level)`: easy "Gonk" (the greedy bot plus seeded blunders), hard "Street Samurai" (`chooseIntent`, greedy), expert "Blackwall" (tries up to 18 moves, plays each out with the greedy bot through the rival's reply, scores with `evaluate()`). Expert beats hard ~60% with starter decks.
 - `src/data/placeholder.ts` — generic placeholder pool; `src/data/cards.ts` loads `public/cards/cards.json` when present.
 - `src/ui/coach.ts` — tutorial coach: `INTRO` pages, `coachFor(state, me, seen)` explains the current step and
   turns the bot's suggested move into a `Hint` (glowing hand cards / units / dice / buttons); `eventNote()` for one-off notes.
