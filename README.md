@@ -26,6 +26,13 @@ browser referees every move. If either of you reloads, choose **Resume online ga
 also just reopen the invite link). Keep the host's page open for the whole game. Some strict networks
 (certain office or school Wi-Fi) block direct connections.
 
+## Drag and drop
+
+On iPad, iPhone or with a mouse, cards can be dragged like in Hearthstone: pull a card from your hand
+up onto the table to play it (Gear onto one of your Units or face-up Legends; any sellable card onto your
+Eddies to sell it), and drag one of your Units onto a rival Unit to attack it, or onto the rival's side to
+attack their Gigs (an arrow follows your finger). Tapping still works as before.
+
 ## Tutorial
 
 New to the game? Press **Tutorial: practice game** on the setup screen. A coach panel explains each

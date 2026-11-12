@@ -38,7 +38,7 @@ export const INTRO: { title: string; body: string }[] = [
 	},
 	{
 		title: 'The table',
-		body: 'Your mat is at the bottom, laid out like the official playmat: the Fixer dice down the left, Rival Gigs and Friendly Gigs along the top, your Field of Units in the middle, Legends and Eddies along the bottom, and your Deck and Trash on the right. The rival’s mat faces you at the top. Tap any card to see it big on the left — the actions you can take with it appear underneath. The log on the right says everything that happens.',
+		body: 'Your mat is at the bottom, laid out like the official playmat: the Fixer dice down the left, Rival Gigs and Friendly Gigs along the top, your Field of Units in the middle, Legends and Eddies along the bottom, and your Deck and Trash on the right. The rival’s mat faces you at the top. Tap any card to see it big on the left — the actions you can take with it appear underneath. The log on the right says everything that happens. You can also drag: pull a card from your hand onto the table to play it (Gear onto a Unit, or onto your Eddies to sell), and drag one of your Units onto a rival Unit or their side of the table to attack.',
 	},
 ]
 

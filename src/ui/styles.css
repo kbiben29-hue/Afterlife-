@@ -3269,3 +3269,25 @@ button.level.expert { color: var(--pink); }
 	button.level b { font-size: 16px; }
 	button.level small { font-size: 12px; }
 }
+
+/* ───── drag and drop ───── */
+.drag-layer { position: fixed; inset: 0; z-index: 160; pointer-events: none; }
+.drag-ghost {
+	position: fixed;
+	left: 0;
+	top: 0;
+	width: 120px;
+	aspect-ratio: 5 / 7;
+	filter: drop-shadow(0 18px 26px rgba(0, 0, 0, 0.75)) drop-shadow(0 0 14px rgba(243, 230, 0, 0.45));
+	will-change: transform;
+}
+.drag-ghost > * { width: 100%; height: 100%; }
+.drag-arrow { position: fixed; inset: 0; filter: drop-shadow(0 0 6px rgba(255, 42, 109, 0.8)); }
+.slot.dragging { opacity: 0.35; }
+.drop-ok { outline: 3px solid var(--cyan) !important; outline-offset: 2px; box-shadow: 0 0 24px rgba(25, 227, 240, 0.55) !important; }
+.slot.unit.drop-ok .card { outline: 3px solid var(--pink); outline-offset: 2px; }
+.mat.drop-ok, .p-me.drop-ok, .p-oppfield.drop-ok, .p-oppgigs.drop-ok { outline-offset: -3px; }
+/* fingers: the hand still scrolls sideways; dragging up lifts a card. Your Units drag freely. */
+.slot.hand-card { touch-action: pan-x; -webkit-user-drag: none; }
+.pocket .p-me .slot.unit, .mat.bottom .slot.unit { touch-action: none; }
+.card-img { -webkit-user-drag: none; }

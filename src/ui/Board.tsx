@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { actor, attackError, attackers, hasKw, available, canPlay, costOf, def, gigsToSteal, hasBlocker, legalGigDice, nameOf, streetCred, unitPower } from '../engine/engine'
 import { abilitiesOf, abilityCost, abilityError, attackPower, callCost, goSoloCost, isScripted, unblockable } from '../engine/effects'
@@ -378,6 +378,139 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 			setMode(null)
 		}
 	}
+	// ───── drag and drop (finger or mouse), Hearthstone-style ─────
+	// Hand card → drag onto the table to play it, onto a Unit/face-up Legend to equip Gear, onto your
+	// Eddies to sell it. Your Unit → drag onto a rival Unit to attack it, or onto their side for their Gigs.
+	type DragKind = 'hand' | 'unit'
+	const dragRef = useRef<{ kind: DragKind; uid: number; x0: number; y0: number; active: boolean; pid: number; src: DOMRect; hover: Element | null; intent: Intent | null } | null>(null)
+	const [dragView, setDragView] = useState<{ kind: DragKind; uid: number; src: DOMRect } | null>(null)
+	const ghostRef = useRef<HTMLDivElement>(null)
+	const arrowRef = useRef<SVGLineElement>(null)
+	const swallow = useRef(0)
+	const swallowClick = () => Date.now() - swallow.current < 400
+	const startDrag = (e: RPointerEvent, kind: DragKind, uid: number) => {
+		if (!myTurnToAct || hideHand || (e.pointerType === 'mouse' && e.button !== 0)) return
+		if (kind === 'hand' && pend.kind !== 'main' && pend.kind !== 'react') return
+		if (kind === 'unit' && !(pend.kind === 'main' && canAtk.has(uid))) return
+		dragRef.current = { kind, uid, x0: e.clientX, y0: e.clientY, active: false, pid: e.pointerId, src: (e.currentTarget as HTMLElement).getBoundingClientRect(), hover: null, intent: null }
+	}
+	/** What dropping here would do. */
+	const dropIntent = (kind: DragKind, uid: number, el: Element | null, y: number): { intent: Intent | null; mark: Element | null } => {
+		if (!el) return { intent: null, mark: null }
+		const onUid = el.closest('[data-uid]')
+		const target = onUid ? Number(onUid.getAttribute('data-uid')) : undefined
+		const zone = el.closest('[data-drop]')
+		const zoneKind = zone?.getAttribute('data-drop')
+		if (kind === 'unit') {
+			if (target !== undefined && s.instances[target]?.owner === rv && P[rv].field.some((u) => u.uid === target)) {
+				const t = { kind: 'unit' as const, uid: target }
+				return { intent: attackError(s, me, uid, t) ? null : { t: 'attack', player: me, attacker: uid, target: t }, mark: onUid }
+			}
+			if (zoneKind === 'rival' && !attackError(s, me, uid, { kind: 'gigs' })) return { intent: { t: 'attack', player: me, attacker: uid, target: { kind: 'gigs' } }, mark: zone }
+			return { intent: null, mark: null }
+		}
+		const d = def(s, uid)
+		const sellZone = el.closest(`[data-pile="eddies-${me}"]`)
+		if (sellZone && pend.kind === 'main' && d.sell && !P[me].soldThisTurn) return { intent: { t: 'sell', player: me, uid }, mark: sellZone }
+		if (!canPlay(s, me, uid)) return { intent: null, mark: null }
+		if (d.type === 'gear') {
+			const ok = target !== undefined && (P[me].field.some((u) => u.uid === target) || P[me].legends.some((l) => l.uid === target && l.faceUp))
+			return ok ? { intent: { t: 'play', player: me, uid, target }, mark: onUid } : { intent: null, mark: null }
+		}
+		// Units and Programs: anywhere above your hand
+		const hand = document.querySelector('[data-drop="hand"]')?.getBoundingClientRect()
+		if (zoneKind === 'hand' || (hand && y > hand.top + 10)) return { intent: null, mark: null }
+		return { intent: { t: 'play', player: me, uid }, mark: document.querySelector('[data-drop="table"]') }
+	}
+	useEffect(() => {
+		const move = (e: PointerEvent) => {
+			const d = dragRef.current
+			if (!d || e.pointerId !== d.pid) return
+			if (!d.active) {
+				if (Math.hypot(e.clientX - d.x0, e.clientY - d.y0) < 12) return
+				// a sideways swipe on the hand scrolls it instead
+				if (d.kind === 'hand' && Math.abs(e.clientX - d.x0) > Math.abs(e.clientY - d.y0) * 1.4 && e.pointerType !== 'mouse') {
+					dragRef.current = null
+					return
+				}
+				d.active = true
+				setSel(null)
+				setMode(null)
+				setDragView({ kind: d.kind, uid: d.uid, src: d.src })
+			}
+			e.preventDefault()
+			const g = ghostRef.current
+			if (g) g.style.transform = `translate(${e.clientX}px, ${e.clientY}px) translate(-50%, -60%) rotate(-3deg)`
+			const a = arrowRef.current
+			if (a) {
+				a.setAttribute('x2', String(e.clientX))
+				a.setAttribute('y2', String(e.clientY))
+			}
+			const { intent, mark } = dropIntent(d.kind, d.uid, document.elementFromPoint(e.clientX, e.clientY), e.clientY)
+			if (d.hover !== mark) {
+				d.hover?.classList.remove('drop-ok')
+				mark?.classList.add('drop-ok')
+				d.hover = mark
+			}
+			d.intent = intent
+		}
+		const up = (e: PointerEvent) => {
+			const d = dragRef.current
+			if (!d || e.pointerId !== d.pid) return
+			dragRef.current = null
+			if (!d.active) return
+			swallow.current = Date.now()
+			d.hover?.classList.remove('drop-ok')
+			setDragView(null)
+			if (e.type === 'pointerup' && d.intent) {
+				const i = d.intent
+				// a Unit or Program dropped on the table plays like tapping Play; an attack resolves like the Attack button
+				act(i)
+			}
+		}
+		window.addEventListener('pointermove', move, { passive: false })
+		window.addEventListener('pointerup', up)
+		window.addEventListener('pointercancel', up)
+		return () => {
+			window.removeEventListener('pointermove', move)
+			window.removeEventListener('pointerup', up)
+			window.removeEventListener('pointercancel', up)
+		}
+	})
+	const dragLayer = dragView
+		? createPortal(
+				<div className="drag-layer">
+					{dragView.kind === 'hand' ? (
+						<div ref={ghostRef} className="drag-ghost" style={{ transform: `translate(${dragView.src.left + dragView.src.width / 2}px, ${dragView.src.top + dragView.src.height / 2}px) translate(-50%, -60%)` }}>
+							<CardFace d={def(s, dragView.uid)} />
+						</div>
+					) : (
+						<svg className="drag-arrow" width="100%" height="100%">
+							<defs>
+								<marker id="dragHead" markerWidth="5" markerHeight="5" refX="2.5" refY="2.5" orient="auto">
+									<path d="M0,0 L5,2.5 L0,5 z" fill="#ff2a6d" />
+								</marker>
+							</defs>
+							<line
+								ref={arrowRef}
+								x1={dragView.src.left + dragView.src.width / 2}
+								y1={dragView.src.top + dragView.src.height / 2}
+								x2={dragView.src.left + dragView.src.width / 2}
+								y2={dragView.src.top}
+								stroke="#ff2a6d"
+								strokeWidth="9"
+								strokeLinecap="round"
+								strokeDasharray="1 16"
+								markerEnd="url(#dragHead)"
+							/>
+							<circle cx={dragView.src.left + dragView.src.width / 2} cy={dragView.src.top + dragView.src.height / 2} r="14" fill="none" stroke="#ff2a6d" strokeWidth="3" />
+						</svg>
+					)}
+				</div>,
+				document.body,
+			)
+		: null
+
 	const atk = pend.kind === 'react' ? pend.attack : null
 	const canAtk = useMemo(() => new Set(pend.kind === 'main' && myTurnToAct ? attackers(s, me) : []), [s, me, pend.kind, myTurnToAct])
 
@@ -443,7 +576,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		const targetable = (mode?.kind === 'attack' && owner === rv && !attackError(s, me, mode.attacker, { kind: 'unit', uid: u.uid })) || (mode?.kind === 'gear' && owner === me)
 		const isAtk = atk && (atk.attacker === u.uid || (atk.target.kind === 'unit' && atk.target.uid === u.uid))
 		return (
-			<div key={u.uid} data-uid={u.uid} className={`slot unit ${u.spent ? 'spent' : ''} ${sel?.kind === 'field' && sel.uid === u.uid ? 'sel' : ''} ${targetable ? 'target' : ''} ${canAtk.has(u.uid) ? 'can-attack' : ''} ${isAtk ? 'in-fight' : ''} ${unitHint(u.uid)} ${optCls(optByUid.get(u.uid))}`} onClick={() => clickUnit(u, owner)}>
+			<div key={u.uid} data-uid={u.uid} className={`slot unit ${u.spent ? 'spent' : ''} ${sel?.kind === 'field' && sel.uid === u.uid ? 'sel' : ''} ${targetable ? 'target' : ''} ${canAtk.has(u.uid) ? 'can-attack' : ''} ${isAtk ? 'in-fight' : ''} ${unitHint(u.uid)} ${optCls(optByUid.get(u.uid))} ${dragView?.uid === u.uid ? 'dragging' : ''}`} onPointerDown={(e) => owner === me && startDrag(e, 'unit', u.uid)} onClick={() => !swallowClick() && clickUnit(u, owner)}>
 				<div className="card">
 					<CardFace d={d} />
 				</div>
@@ -459,7 +592,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		const peek = !l.faceUp && owner === me && peekable.has(l.uid)
 		const visible = l.faceUp || peek
 		return (
-			<div key={l.uid} className={`slot legend ${l.spent ? 'spent' : ''} ${peek ? 'peek' : ''} ${sel?.kind === 'legend' && sel.uid === l.uid ? 'sel' : ''} ${mode?.kind === 'gear' && owner === me && l.faceUp ? 'target' : ''} ${hl(hint?.legends, l.uid)} ${optCls(optByUid.get(l.uid))}`} onClick={() => clickLegend(l, owner)}>
+			<div key={l.uid} data-uid={l.uid} className={`slot legend ${l.spent ? 'spent' : ''} ${peek ? 'peek' : ''} ${sel?.kind === 'legend' && sel.uid === l.uid ? 'sel' : ''} ${mode?.kind === 'gear' && owner === me && l.faceUp ? 'target' : ''} ${hl(hint?.legends, l.uid)} ${optCls(optByUid.get(l.uid))}`} onClick={() => clickLegend(l, owner)}>
 				<div className="card">{visible ? <CardFace d={d} /> : <CardBack label="LEGEND" />}</div>
 				{peek && <div className="badge peek-b">FACE-DOWN</div>}
 				{attached(l.uid, l.gear)}
@@ -482,7 +615,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		const fixerSlots = DIE_ORDER.map((n) => pl.fixer.find((d) => d.sides === n) ?? null)
 		const topTrash = pl.trash[pl.trash.length - 1]
 		return (
-			<div className={`mat ${top ? 'top' : 'bottom'} ${s.active === p ? 'active' : ''}`}>
+			<div className={`mat ${top ? 'top' : 'bottom'} ${s.active === p ? 'active' : ''}`} data-drop={p === me ? 'table' : 'rival'}>
 				<div className="mat-fixer">
 					<div className="vlabel">FIXER</div>
 					{(top ? [...fixerSlots].reverse() : fixerSlots).map((d, i) =>
@@ -496,6 +629,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 
 				<div className="mat-gigs">
 					<button
+						data-drop="rival"
 						className={`banner rival-gigs ${aiming ? 'aim' : ''} ${aiming && hint?.gigTarget ? 'hint' : ''}`}
 						disabled={!aiming}
 						onClick={() => aiming && act({ t: 'attack', player: me, attacker: mode!.attacker, target: { kind: 'gigs' } })}
@@ -779,7 +913,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		<>
 					{P[me].hand.map((uid) =>
 						handVisible ? (
-							<div key={uid} data-uid={uid} className={`slot hand-card ${hl(hint?.hand, uid)} ${sel?.kind === 'hand' && sel.uid === uid ? 'sel' : ''} ${myTurnToAct && canPlay(s, me, uid) && (pend.kind === 'main' || pend.kind === 'react') ? 'playable' : ''} ${optCls(optByUid.get(uid))}`} onClick={() => (optByUid.has(uid) ? pickOpt(optByUid.get(uid)!.id) : toggle({ kind: 'hand', uid }))}>
+							<div key={uid} data-uid={uid} className={`slot hand-card ${hl(hint?.hand, uid)} ${sel?.kind === 'hand' && sel.uid === uid ? 'sel' : ''} ${myTurnToAct && canPlay(s, me, uid) && (pend.kind === 'main' || pend.kind === 'react') ? 'playable' : ''} ${optCls(optByUid.get(uid))} ${dragView?.uid === uid ? 'dragging' : ''}`} onPointerDown={(e) => startDrag(e, 'hand', uid)} onClick={() => !swallowClick() && (optByUid.has(uid) ? pickOpt(optByUid.get(uid)!.id) : toggle({ kind: 'hand', uid }))}>
 								<div className="card">
 									<CardFace d={def(s, uid)} />
 								</div>
@@ -970,11 +1104,12 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 		<div className="board" onPointerDown={unlockAudio}>
 			{bannerEl}
 			{flightEl}
+			{dragLayer}
 			<main className="table">
 				{side(rv, true)}
 				{choicePanel}
 				{side(me, false)}
-				<div className="hand" ref={handRef} style={{ ['--overlap' as string]: `${Math.min(0, (1150 - P[me].hand.length * 122) / Math.max(1, P[me].hand.length - 1))}px` }}>
+				<div className="hand" data-drop="hand" ref={handRef} style={{ ['--overlap' as string]: `${Math.min(0, (1150 - P[me].hand.length * 122) / Math.max(1, P[me].hand.length - 1))}px` }}>
 					{handCards}
 				</div>
 			</main>
@@ -1012,6 +1147,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 			<div className={`pocket ${s.active === me ? 'my-turn' : ''}`} onPointerDown={unlockAudio}>
 				{bannerEl}
 				{flightEl}
+				{dragLayer}
 				<header className="p-top">
 					<button className="p-icon" onClick={() => setSheet(sheet === 'menu' ? null : 'menu')} title="Menu">
 						☰
@@ -1035,7 +1171,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 					</button>
 				</header>
 
-				<div className="p-oppgigs">
+				<div className="p-oppgigs" data-drop="rival">
 					<div className="p-opppiles">
 						<div className="p-minipile" data-pile={`deck-${rv}`} title={`${rivalPl.name}’s deck`}>
 							<div className="pile-card">{rivalPl.deck.length ? <CardBack /> : <div className="pile-empty" />}</div>
@@ -1058,7 +1194,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 					{rivalPl.gigs.length === 0 && <span className="dim">No Gigs yet</span>}
 				</div>
 
-				<section className={`p-oppfield ${aiming ? 'aim' : ''}`}>
+				<section className={`p-oppfield ${aiming ? 'aim' : ''}`} data-drop="rival">
 					{rivalPl.field.length === 0 && !aiming && <div className="p-empty">Rival field empty</div>}
 					{rivalPl.field.map((u) => unitView(u, rv))}
 					{aiming && attacker && (
@@ -1071,7 +1207,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 
 				{choicePanel}
 
-				<section className="p-me">
+				<section className="p-me" data-drop="table">
 					<div className={`p-gigs ${flash[me] ? `flash-${flash[me]}` : ''}`}>
 						<div className="readout">
 							<span className="ro-big">
@@ -1124,7 +1260,7 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 					<div className="p-prompt">{promptBar}</div>
 				</aside>
 
-				<div className="p-hand" ref={handRef}>
+				<div className="p-hand" data-drop="hand" ref={handRef}>
 					{handCards}
 				</div>
 
