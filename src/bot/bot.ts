@@ -39,7 +39,7 @@ export function chooseIntent(s: GameState): Intent | null {
 	switch (pend.kind) {
 		case 'choose': {
 			const q = pend.question
-			const ranked = [...q.options].sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+			const ranked = q.options.filter((o) => !o.disabled).sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
 			const n = Math.max(q.min, Math.min(q.max, ranked.filter((o) => (o.score ?? 0) > 0).length))
 			return { t: 'choose', player: p, picks: ranked.slice(0, n).map((o) => o.id) }
 		}

@@ -130,6 +130,8 @@ export interface ChoiceOption {
 	dieId?: string
 	/** how good this pick is for the chooser (the computer player uses it) */
 	score?: number
+	/** shown but can't be picked (with the reason) — e.g. the trashed cards that aren't Units */
+	disabled?: string
 }
 export interface Question {
 	prompt: string
@@ -138,6 +140,8 @@ export interface Question {
 	max: number
 	/** cards the chooser may see while deciding (e.g. the face-down Legends they just looked at) */
 	reveal?: number[]
+	/** always show the question, even when there's only one possible answer (so the player sees the cards) */
+	confirm?: boolean
 }
 /** A triggered or played effect waiting to resolve. */
 export interface Task {

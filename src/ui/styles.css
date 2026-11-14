@@ -3291,3 +3291,6 @@ button.level.expert { color: var(--pink); }
 .slot.hand-card { touch-action: pan-x; -webkit-user-drag: none; }
 .pocket .p-me .slot.unit, .mat.bottom .slot.unit { touch-action: none; }
 .card-img { -webkit-user-drag: none; }
+.cp-card-opt.off { opacity: 0.4; filter: grayscale(0.8); cursor: not-allowed; }
+.cp-card-opt.off span { color: var(--pink); }
+.cp-card-opt:not(.off) span { color: #fff; font-weight: 700; }

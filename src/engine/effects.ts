@@ -857,12 +857,15 @@ export function runTask(s: GameState, task: Task): { state: GameState } | { need
 		source: task.source,
 		data: task.data ?? {},
 		ask(player, q) {
-			const valid = q.options.length
-			if (valid === 0) return []
+			const enabled = q.options.filter((o) => !o.disabled)
 			if (i < task.answers.length) return task.answers[i++]
-			// only one way to answer a forced single choice: no need to ask
-			if (q.min === q.max && valid === q.min) {
-				const all = q.options.map((o) => o.id)
+			if (enabled.length === 0 && !q.confirm) return []
+			// nothing pickable but the player should see the cards: they just press OK
+			if (enabled.length === 0) q = { ...q, min: 0, max: 0 }
+			else if (enabled.length < q.min) q = { ...q, min: enabled.length }
+			// only one way to answer a forced single choice: no need to ask (unless the cards should be shown)
+			if (q.min === q.max && enabled.length === q.min && !q.confirm) {
+				const all = enabled.map((o) => o.id)
 				task.answers.push(all)
 				i++
 				return all

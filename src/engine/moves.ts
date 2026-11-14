@@ -51,8 +51,9 @@ export function legalIntents(s: GameState): Intent[] {
 				.map((d) => ({ t: 'steal', player: p, dieId: d.id }))
 		case 'choose': {
 			const q = pend.question
-			const ids = q.options.map((o) => o.id)
-			const best = [...q.options].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).map((o) => o.id)
+			const usable = q.options.filter((o) => !o.disabled)
+			const ids = usable.map((o) => o.id)
+			const best = [...usable].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).map((o) => o.id)
 			const sets: string[][] = []
 			if (q.min === 0) sets.push([])
 			if (q.min <= 1 && q.max >= 1) for (const id of ids) sets.push([id])

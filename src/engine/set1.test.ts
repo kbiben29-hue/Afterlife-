@@ -403,3 +403,23 @@ test('Gorilla Arms: the first steal steals one more unmatched Gig', () => {
 	if (s.pending.kind === 'steal') s = apply(s, { t: 'steal', player: 0, dieId: '1-d6' })
 	assert.equal(s.players[0].gigs.length, 3)
 })
+
+test('All Is Lost shows all 3 trashed cards; only Units can be taken (even when there is just one)', () => {
+	let s = table({ hand: ['all-is-lost'], eddies: 1, deckTop: ['mantis-blades', 'psycho-squad', 'floor-it'] })
+	s = apply(s, { t: 'play', player: 0, uid: uid(s, 0, 'all-is-lost') })
+	const qq = q(s)!
+	assert.equal(qq.options.length, 3)
+	assert.equal(qq.options.filter((o) => o.disabled).length, 2)
+	const gear = qq.options.find((o) => o.disabled)!.id
+	assert.match(tryApply(s, { t: 'choose', player: 0, picks: [gear] }).error ?? '', /Not a Unit/)
+	const unit = qq.options.find((o) => !o.disabled)!.id
+	s = apply(s, { t: 'choose', player: 0, picks: [unit] })
+	assert.ok(s.players[0].hand.includes(Number(unit)))
+})
+test('All Is Lost with no Unit trashed: the cards are shown, OK takes nothing', () => {
+	let s = table({ hand: ['all-is-lost'], eddies: 1, deckTop: ['mantis-blades', 'floor-it', 'detonate'] })
+	s = apply(s, { t: 'play', player: 0, uid: uid(s, 0, 'all-is-lost') })
+	assert.equal(q(s)?.max, 0)
+	s = apply(s, { t: 'choose', player: 0, picks: [] })
+	assert.equal(s.pending.kind, 'main')
+})

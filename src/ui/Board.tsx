@@ -179,6 +179,8 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 	const optByDie = new Map((question?.options ?? []).filter((o) => o.dieId !== undefined).map((o) => [o.dieId!, o]))
 	const pickOpt = (id: string) => {
 		if (!question) return
+		const o = question.options.find((x) => x.id === id)
+		if (o?.disabled) return setError(`${o.disabled} — it can’t be picked.`)
 		if (question.max === 1) return act({ t: 'choose', player: me, picks: [id] })
 		setPicks((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : cur.length < question.max ? [...cur, id] : cur))
 	}
@@ -878,14 +880,14 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 				<div className={`cp-options ${showCards ? 'cards' : ''}`}>
 					{question.options.map((o) =>
 						showCards && o.uid !== undefined ? (
-							<button key={o.id} className={`cp-card-opt ${picks.includes(o.id) ? 'picked' : ''}`} onClick={() => pickOpt(o.id)}>
+							<button key={o.id} className={`cp-card-opt ${picks.includes(o.id) ? 'picked' : ''} ${o.disabled ? 'off' : ''}`} onClick={() => pickOpt(o.id)} title={o.disabled}>
 								<div className="cp-card">
 									<CardFace d={def(s, o.uid)} />
 								</div>
-								<span>{o.label}</span>
+								<span>{o.disabled ? o.disabled : nameOf(s, o.uid)}</span>
 							</button>
 						) : (
-							<button key={o.id} className={`${picks.includes(o.id) ? 'picked' : ''} ${question.options.length === 1 ? 'primary' : ''} ${hinted(o.label) ? 'hint' : ''}`} onClick={() => pickOpt(o.id)}>
+							<button key={o.id} data-off={o.disabled ? 1 : undefined} className={`${picks.includes(o.id) ? 'picked' : ''} ${question.options.length === 1 ? 'primary' : ''} ${hinted(o.label) ? 'hint' : ''}`} onClick={() => pickOpt(o.id)}>
 								{picks.includes(o.id) ? '✓ ' : ''}
 								{o.label}
 							</button>
@@ -899,7 +901,9 @@ export function Board({ state: s, send, viewer, hideHand, bot, onUndo, onMenu, o
 						</button>
 					)}
 					{question.min === 0 && (
-						<button onClick={() => act({ t: 'choose', player: me, picks: [] })}>{question.max > 1 ? 'Take none' : 'Skip'}</button>
+						<button className={question.max === 0 ? 'primary' : ''} onClick={() => act({ t: 'choose', player: me, picks: [] })}>
+							{question.max === 0 ? 'OK — nothing to take' : question.max > 1 ? 'Take none' : 'Skip'}
+						</button>
 					)}
 				</div>
 				{error && (

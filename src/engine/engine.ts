@@ -934,6 +934,8 @@ function applyRaw(prev: GameState, intent: Intent): GameState {
 		const picks = intent.picks
 		if (picks.length < q.min || picks.length > q.max) fail(q.min === q.max ? `Choose ${q.min}` : `Choose ${q.min}–${q.max}`)
 		if (new Set(picks).size !== picks.length || picks.some((id) => !q.options.some((o) => o.id === id))) fail('Not one of the choices')
+		const off = picks.map((id) => q.options.find((o) => o.id === id)!).find((o) => o.disabled)
+		if (off) fail(off.disabled!)
 		const task = s.queue![0]
 		task.answers.push(picks)
 		s.pending = s.after!

@@ -71,6 +71,14 @@ const yesNo = (c: Ctx, prompt: string, yes: string, score = 1, who: PlayerId = c
 const cardOpts = (s: GameState, uids: number[], score: (u: number) => number = (u) => def(s, u).cost ?? 0): ChoiceOption[] =>
 	uids.map((u) => ({ id: String(u), label: `${nameOf(s, u)} (${def(s, u).type}, cost ${def(s, u).cost ?? '—'})`, uid: u, score: score(u) }))
 
+/** Show every card that was looked at / trashed; the ones that don't qualify are greyed out with why. */
+function pickAmong(c: Ctx, prompt: string, cards: number[], ok: (u: number) => boolean, why: string, max = 1, score: (u: number) => number = (u) => def(c.s, u).cost ?? 0): number[] {
+	if (!cards.length) return []
+	const opts = cardOpts(c.s, cards, score).map((o) => (ok(o.uid!) ? o : { ...o, disabled: why }))
+	const n = Math.min(max, opts.filter((o) => !o.disabled).length)
+	return c.ask(c.owner, { prompt, options: opts, min: Math.min(1, n), max: Math.max(n, 0), confirm: true }).map(Number)
+}
+
 /** "Choose one effect" (or both). Returns the chosen indexes. */
 function chooseModes(c: Ctx, labels: string[], scores: number[], both: boolean, who: PlayerId = c.owner): number[] {
 	if (both) return labels.map((_, i) => i)
@@ -97,18 +105,7 @@ function searchTop(c: Ctx, n: number, ok: (uid: number) => boolean, max: number,
 	const pl = c.s.players[c.owner]
 	const top = pl.deck.slice(0, n)
 	if (!top.length) return []
-	const okCards = top.filter(ok)
-	let picks: number[] = []
-	if (okCards.length && max > 0)
-		picks = c
-			.ask(c.owner, {
-				prompt: `${def(c.s, c.source).name}: the top ${top.length} cards — add ${max > 1 ? `up to ${max}` : '1'} ${what} to your hand.`,
-				options: cardOpts(c.s, okCards, (u) => (def(c.s, u).cost ?? 0) + 1),
-				min: Math.min(1, okCards.length),
-				max: Math.min(max, okCards.length),
-				reveal: top,
-			})
-			.map(Number)
+	const picks = pickAmong(c, `${def(c.s, c.source).name}: your top ${top.length} cards — add ${max > 1 ? `up to ${max}` : '1'} ${what} to your hand; the rest go to the bottom.`, top, ok, `Not ${what}`, max, (u) => (def(c.s, u).cost ?? 0) + 1)
 	pl.deck = pl.deck.slice(top.length)
 	for (const u of picks) pl.hand.push(u)
 	pl.deck.push(...top.filter((u) => !picks.includes(u)))
@@ -354,9 +351,9 @@ export const SET1_HANDLERS: Record<string, Handler> = {
 	'sasha-yakovleva-won-t-let-you-down:defeated': (c) => void discardFromHand(c, 1, c.rival),
 	'v-streetkid:call': (c) => {
 		trashTop(c.s, c.owner, 3)
-		const bd = c.s.players[c.owner].trash.filter((u) => def(c.s, u).type === 'program' && tag(c.s, u, 'braindance'))
-		const pick = one(c, c.owner, 'V: add a BRAINDANCE Program from your trash to your hand.', cardOpts(c.s, bd))
-		if (pick !== null) toHand(c, Number(pick), 'trash')
+		const isBd = (u: number) => def(c.s, u).type === 'program' && tag(c.s, u, 'braindance')
+		const [pick] = pickAmong(c, 'V: add a BRAINDANCE Program from your trash to your hand.', [...c.s.players[c.owner].trash].reverse(), isBd, 'Not a BRAINDANCE Program')
+		if (pick !== undefined) toHand(c, pick, 'trash')
 	},
 	'wakako-okada-peace-and-harmony:call': (c) => {
 		const rv = units(c.s, c.rival)
@@ -370,9 +367,9 @@ export const SET1_HANDLERS: Record<string, Handler> = {
 
 	// ═════ Programs ═════
 	'all-is-lost:program': (c) => {
-		const t = trashTop(c.s, c.owner, 3).filter((u) => def(c.s, u).type === 'unit')
-		const pick = one(c, c.owner, 'All Is Lost: add a Unit from among them to your hand.', cardOpts(c.s, t))
-		if (pick !== null) toHand(c, Number(pick), 'trash')
+		const t = trashTop(c.s, c.owner, 3)
+		const [pick] = pickAmong(c, 'All Is Lost: you trashed these 3 — add a Unit from among them to your hand.', t, (u) => def(c.s, u).type === 'unit', 'Not a Unit')
+		if (pick !== undefined) toHand(c, pick, 'trash')
 	},
 	'appetite-for-destruction:program': (c) => {
 		addMark(c.s.players[c.owner], 'appetite', 'eot')
@@ -557,10 +554,9 @@ export const SET1_HANDLERS: Record<string, Handler> = {
 		if (['ai', 'drone', 'vehicle'].some((x) => tag(c.s, t, x))) drawCards(c.s, c.owner, 1)
 	},
 	'the-heist:program': (c) => {
-		const gear = trashTop(c.s, c.owner, 4).filter((u) => def(c.s, u).type === 'gear')
-		const pick = one(c, c.owner, 'The Heist: add a Gear from among them to your hand.', cardOpts(c.s, gear, (u) => (def(c.s, u).power ?? 0) + (def(c.s, u).cost ?? 0)))
-		if (pick === null) return
-		const g = Number(pick)
+		const t = trashTop(c.s, c.owner, 4)
+		const [g] = pickAmong(c, 'The Heist: you trashed these 4 — add a Gear from among them to your hand.', t, (u) => def(c.s, u).type === 'gear', 'Not a Gear', 1, (u) => (def(c.s, u).power ?? 0) + (def(c.s, u).cost ?? 0))
+		if (g === undefined) return
 		const match = c.s.players[c.owner].gigs.some((d) => d.value === def(c.s, g).cost)
 		const hosts = c.s.players[c.owner].field.length + c.s.players[c.owner].legends.filter((l) => l.faceUp).length
 		if (match && hosts && yesNo(c, `The Heist: ${nameOf(c.s, g)}’s cost matches one of your Gigs — play it for free now?`, 'Play it for free')) playFree(c, g)
@@ -658,9 +654,9 @@ export const SET1_HANDLERS: Record<string, Handler> = {
 		if (t !== null) defeatUnit(c.s, t)
 	},
 	'hacked-corpo:play': (c) => {
-		const p = trashTop(c.s, c.owner, 3).filter((u) => def(c.s, u).type === 'program')
-		const pick = one(c, c.owner, 'Hacked Corpo: add a Program from among them to your hand.', cardOpts(c.s, p))
-		if (pick !== null) toHand(c, Number(pick), 'trash')
+		const t = trashTop(c.s, c.owner, 3)
+		const [pick] = pickAmong(c, 'Hacked Corpo: you trashed these 3 — add a Program from among them to your hand.', t, (u) => def(c.s, u).type === 'program', 'Not a Program')
+		if (pick !== undefined) toHand(c, pick, 'trash')
 	},
 	'hanako-arasaka-in-a-gilded-cage:play': (c) => {
 		const vals = new Set(c.s.players[c.owner].gigs.map((d) => d.value))
